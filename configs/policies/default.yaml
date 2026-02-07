@@ -1,0 +1,101 @@
+id: default
+name: Default Security Policy
+description: A balanced security policy providing essential guardrails for LLM interactions
+version: "1.0.0"
+
+guardrails:
+  input:
+    prompt_injection:
+      enabled: true
+      sensitivity: medium
+      action: block
+      custom_patterns: []
+
+    pii_detection:
+      enabled: true
+      types:
+        - email
+        - phone
+        - ssn
+        - credit_card
+      action: redact
+
+    topic_boundary:
+      enabled: true
+      allowed_topics: [] # Empty = allow all topics
+      blocked_topics:
+        - violence
+        - illegal_activity
+        - harmful_content
+        - explicit_content
+      action: block
+
+    toxicity:
+      enabled: true
+      threshold: 0.7
+      action: block
+
+  output:
+    hallucination_detection:
+      enabled: true
+      grounding_sources: []
+      action: warn
+
+    format_validation:
+      enabled: false
+      schema: null
+      strict_mode: false
+      action: warn
+
+    content_moderation:
+      enabled: true
+      categories:
+        - hate
+        - violence
+        - self_harm
+        - sexual
+      action: filter
+
+  deterministic_controls:
+    rate_limit:
+      enabled: true
+      requests_per_minute: 5 # Set low for verification
+      requests_per_hour: 100
+      key_by: global
+    payload_size:
+      enabled: true
+      max_request_size: 10485760 # 10MB
+      max_messages: 50
+    max_tokens:
+      enabled: true
+      max_input_tokens: 4096
+
+actions:
+  block:
+    type: reject
+    message: "Request blocked due to policy violation"
+    add_warning: false
+    log_level: warn
+
+  redact:
+    type: modify
+    message: "Sensitive information has been redacted"
+    add_warning: true
+    log_level: info
+
+  warn:
+    type: pass
+    message: "Warning: potential issue detected"
+    add_warning: true
+    log_level: info
+
+  filter:
+    type: modify
+    message: "Content has been filtered"
+    add_warning: true
+    log_level: info
+
+logging:
+  level: info
+  include_body: false
+  retention_days: 30
