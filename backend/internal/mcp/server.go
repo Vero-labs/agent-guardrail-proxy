@@ -55,15 +55,27 @@ func (s *Server) StartStdio() {
 
 // SSEHandler handles the MCP SSE transport
 func (s *Server) SSEHandler(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "*")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	// 1. Establish SSE connection
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 
-	sessionID := fmt.Sprintf("%d", r.Context().Value("session_id"))
-	if sessionID == "0" || sessionID == "<nil>" {
+	sessionID := r.URL.Query().Get("session_id")
+	if sessionID == "" {
 		sessionID = fmt.Sprintf("%d", time.Now().UnixNano())
 	}
+	s.logger.Printf("[MCP] New SSE session: %s", sessionID)
 
 	ch := make(chan Response, 10)
 	s.sseMu.Lock()
@@ -71,6 +83,7 @@ func (s *Server) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	s.sseMu.Unlock()
 
 	defer func() {
+		s.logger.Printf("[MCP] SSE session closed: %s", sessionID)
 		s.sseMu.Lock()
 		delete(s.sseChannels, sessionID)
 		s.sseMu.Unlock()
@@ -80,17 +93,40 @@ func (s *Server) SSEHandler(w http.ResponseWriter, r *http.Request) {
 	// 2. Send the endpoint URI to the client
 	// The client will use this URL to send subsequent POST requests
 	endpoint := fmt.Sprintf("/mcp/message?session_id=%s", sessionID)
+	// Try to make it absolute if host is known
+	if r.Host != "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		endpoint = fmt.Sprintf("%s://%s%s", scheme, r.Host, endpoint)
+	}
+
+	s.logger.Printf("[MCP] Advertising endpoint: %s", endpoint)
 	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", endpoint)
 	w.(http.Flusher).Flush()
 
 	// 3. Keep connection open and send responses
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case resp := <-ch:
-			data, _ := json.Marshal(resp)
+			data, err := json.Marshal(resp)
+			if err != nil {
+				s.logger.Printf("[MCP ERROR] Failed to marshal response: %v", err)
+				continue
+			}
+			s.logger.Printf("[MCP] Sending message to session %s: %s", sessionID, string(data))
 			fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(data))
 			w.(http.Flusher).Flush()
+		case <-ticker.C:
+			// Send heartbeat comment to keep connection alive
+			fmt.Fprintf(w, ":\n\n")
+			w.(http.Flusher).Flush()
 		case <-r.Context().Done():
+			s.logger.Printf("[MCP] Client context done for session %s", sessionID)
 			return
 		}
 	}
@@ -98,13 +134,26 @@ func (s *Server) SSEHandler(w http.ResponseWriter, r *http.Request) {
 
 // MessageHandler handles incoming MCP messages over HTTP POST
 func (s *Server) MessageHandler(w http.ResponseWriter, r *http.Request) {
+	// Add CORS headers
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "*")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	sessionID := r.URL.Query().Get("session_id")
+	s.logger.Printf("[MCP] Incoming message for session: %s", sessionID)
+
 	if sessionID == "" {
+		s.logger.Printf("[MCP ERROR] Missing session_id in POST to %s", r.URL.String())
 		http.Error(w, "Missing session_id", http.StatusBadRequest)
 		return
 	}
@@ -114,26 +163,30 @@ func (s *Server) MessageHandler(w http.ResponseWriter, r *http.Request) {
 	s.sseMu.RUnlock()
 
 	if !ok {
+		s.logger.Printf("[MCP ERROR] Session not found: %s", sessionID)
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
 
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		s.logger.Printf("[MCP ERROR] Failed to read body: %v", err)
 		http.Error(w, "Failed to read body", http.StatusBadRequest)
 		return
 	}
 
 	var req Request
 	if err := json.Unmarshal(body, &req); err != nil {
+		s.logger.Printf("[MCP ERROR] Invalid JSON-RPC: %v", err)
 		http.Error(w, "Invalid JSON-RPC", http.StatusBadRequest)
 		return
 	}
 
+	s.logger.Printf("[MCP] Handling method: %s (ID: %v)", req.Method, req.ID)
 	// We send the result back through the SSE channel
 	go s.handleRequest(req, nil, ch)
 
-	w.WriteHeader(http.StatusAccepted)
+	w.WriteHeader(http.StatusOK)
 }
 
 // Request represents a JSON-RPC request
@@ -159,16 +212,32 @@ type RPCError struct {
 }
 
 func (s *Server) handleRequest(req Request, encoder *json.Encoder, sseCh chan Response) {
+	s.logger.Printf("[MCP] Processing request: %s (ID: %v)", req.Method, req.ID)
 	var result interface{}
 	var rpcErr *RPCError
 
 	switch req.Method {
 	case "initialize":
+		var params struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		json.Unmarshal(req.Params, &params)
+		s.logger.Printf("[MCP] Initialize request from client. Protocol version: %s", params.ProtocolVersion)
+
 		result = map[string]interface{}{
-			"protocolVersion": "2024-11-05",
+			"protocolVersion": "2025-06-18",
 			"capabilities": map[string]interface{}{
-				"tools":     map[string]interface{}{},
-				"resources": map[string]interface{}{},
+				"tools": map[string]interface{}{
+					"listChanged": false,
+				},
+				"resources": map[string]interface{}{
+					"subscribe":   false,
+					"listChanged": false,
+				},
+				"prompts": map[string]interface{}{
+					"listChanged": false,
+				},
+				"logging": map[string]interface{}{},
 			},
 			"serverInfo": map[string]string{
 				"name":    "agent-guardrail",
@@ -272,6 +341,8 @@ func (s *Server) handleRequest(req Request, encoder *json.Encoder, sseCh chan Re
 			Error:   rpcErr,
 		}
 
+		s.logger.Printf("[MCP] Sending response for %s (ID: %v)", req.Method, req.ID)
+
 		if encoder != nil {
 			s.mu.Lock()
 			encoder.Encode(resp)
@@ -281,6 +352,8 @@ func (s *Server) handleRequest(req Request, encoder *json.Encoder, sseCh chan Re
 		if sseCh != nil {
 			sseCh <- resp
 		}
+	} else {
+		s.logger.Printf("[MCP] Notification received (Method: %s), no response needed", req.Method)
 	}
 }
 

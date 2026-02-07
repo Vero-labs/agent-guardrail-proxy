@@ -1,0 +1,8 @@
+{
+	"mcpServers": {
+		"agent-guardrail": {
+			"url": "http://localhost:8080/mcp/sse",
+			"type": "sse"
+		}
+	}
+}
