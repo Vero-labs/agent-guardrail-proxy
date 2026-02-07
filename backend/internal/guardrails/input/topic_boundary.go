@@ -14,9 +14,10 @@ var topicKeywords = map[string][]string{
 		"harm", "hurt", "injure", "shoot", "stab", "torture", "abuse",
 	},
 	"illegal_activity": {
-		"hack", "hacking", "crack", "pirate", "piracy", "drug", "drugs",
-		"counterfeit", "fraud", "steal", "theft", "launder", "smuggle",
-		"bribe", "blackmail", "extort",
+		"how to hack", "cracking into", "pirated software", "pirate movies",
+		"illegal drugs", "cocaine", "heroin", "methamphetamine",
+		"counterfeit money", "credit card fraud", "how to steal", "stealing from",
+		"money laundering", "smuggling illegal", "how to bribe", "extortion",
 	},
 	"harmful_content": {
 		"suicide", "self-harm", "eating disorder", "anorexia", "bulimia",

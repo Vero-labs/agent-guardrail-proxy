@@ -10,6 +10,7 @@ import (
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/config"
 	inputGuardrails "github.com/blackrose-blackhat/agent-guardrail/backend/internal/guardrails/input"
 	outputGuardrails "github.com/blackrose-blackhat/agent-guardrail/backend/internal/guardrails/output"
+	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/mcp"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/policy"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/provider"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/proxy"
@@ -65,6 +66,9 @@ func main() {
 		Logger:         logger,
 	}
 
+	// Create MCP server
+	mcpServer := mcp.NewServer(guardrailChain, policyLoader, logger)
+
 	// Setup routes
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -75,6 +79,10 @@ func main() {
 
 	// Also handle OpenAI-compatible endpoints
 	http.HandleFunc("/v1/chat/completions", proxy.Handler(handlerConfig))
+
+	// MCP HTTP Endpoints
+	http.HandleFunc("/mcp/sse", mcpServer.SSEHandler)
+	http.HandleFunc("/mcp/message", mcpServer.MessageHandler)
 
 	// Status endpoint
 	http.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {

@@ -255,9 +255,46 @@ agent-guardrail/
 └── README.md
 ```
 
-## 🔌 Integrating with Your Application
-
 The Agent Guardrail proxy is designed to be a "drop-in" replacement for any OpenAI-compatible client. Simply override the `base_url` to point to your proxy instance.
+
+---
+
+## 🤖 MCP Support (Model Context Protocol)
+
+The system now acts as an **MCP Server**, allowing you to plug it directly into IDEs (like Cursor or Windsurf) and agents (like Claude Desktop).
+
+### Why use MCP?
+
+Instead of just being a proxy, the guardrail system becomes a **Tool** that agents can call to:
+
+- Verify if their own planned response is safe.
+- Inspect the current security policies.
+- Audit a user's prompt before processing.
+
+### Setup for Claude Desktop
+
+Add this to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "agent-guardrail": {
+      "command": "go",
+      "args": ["run", "backend/cmd/mcp/main.go"],
+      "cwd": "/absolute/path/to/agent-guardrail"
+    }
+  }
+}
+```
+
+### Available Tools
+
+- `check_prompt`: Validates any string against input guardrails (PII, Injection, etc.).
+- `check_response`: Validates any string against output guardrails (Hallucinations, etc.).
+
+---
+
+## 🔌 Integrating with Your Application
 
 ### Python (OpenAI SDK)
 
