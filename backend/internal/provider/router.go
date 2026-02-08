@@ -4,8 +4,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/chain"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/config"
+	"github.com/blackrose-blackhat/agent-guardrail/backend/pkg/models"
 )
 
 // Router manages multiple providers and routes requests to the appropriate one
@@ -19,7 +19,7 @@ type Router struct {
 // RoutingRule defines a condition for routing to a specific provider
 type RoutingRule struct {
 	Name      string
-	Condition func(*chain.LLMRequest) bool
+	Condition func(*models.LLMRequest) bool
 	Target    string
 	Priority  int
 }
@@ -106,7 +106,7 @@ func (r *Router) AddRule(rule RoutingRule) {
 }
 
 // Route selects the appropriate provider for a request
-func (r *Router) Route(req *chain.LLMRequest) (Provider, error) {
+func (r *Router) Route(req *models.LLMRequest) (Provider, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

@@ -3,7 +3,7 @@ package provider
 import (
 	"net/http"
 
-	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/chain"
+	"github.com/blackrose-blackhat/agent-guardrail/backend/pkg/models"
 )
 
 // Provider is the interface that all LLM providers must implement
@@ -15,16 +15,16 @@ type Provider interface {
 	ForwardRequest(r *http.Request) (*http.Response, error)
 
 	// ParseRequest parses raw request body into normalized LLMRequest
-	ParseRequest(body []byte) (*chain.LLMRequest, error)
+	ParseRequest(body []byte) (*models.LLMRequest, error)
 
 	// ParseResponse parses raw response body into normalized LLMResponse
-	ParseResponse(body []byte) (*chain.LLMResponse, error)
+	ParseResponse(body []byte) (*models.LLMResponse, error)
 
 	// SupportsStreaming returns whether this provider supports SSE streaming
 	SupportsStreaming() bool
 
 	// GetUsage extracts usage information from a response
-	GetUsage(resp *chain.LLMResponse) *chain.Usage
+	GetUsage(resp *models.LLMResponse) *models.Usage
 }
 
 // BaseProvider provides common functionality for all providers

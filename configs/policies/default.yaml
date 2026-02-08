@@ -56,6 +56,22 @@ guardrails:
         - sexual
       action: filter
 
+    llm_judge:
+      enabled: false
+      model: ""
+      action: warn
+      categories:
+        - hate
+        - violence
+        - self_harm
+        - sexual
+        - drugs
+        - weapons
+      threshold: 0.6
+      max_tokens: 256
+      temperature: 0.0
+      fail_open: true
+
   deterministic_controls:
     rate_limit:
       enabled: true

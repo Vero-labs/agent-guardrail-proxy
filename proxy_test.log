@@ -1,0 +1,17 @@
+[guardrail] 2026/02/08 18:12:09 main.go:26: Configuration loaded
+[guardrail] 2026/02/08 18:12:09 main.go:36: Provider: openai (http://localhost:11435)
+[guardrail] 2026/02/08 18:12:09 main.go:79: =================================
+[guardrail] 2026/02/08 18:12:09 main.go:80: Agent Guardrail Proxy Starting
+[guardrail] 2026/02/08 18:12:09 main.go:81: =================================
+[guardrail] 2026/02/08 18:12:09 main.go:82: Server:   http://0.0.0.0:8082
+[guardrail] 2026/02/08 18:12:09 main.go:83: Provider: http://localhost:11435
+[guardrail] 2026/02/08 18:12:09 main.go:84: =================================
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Facts: &{Intent:Extract PII Risk:0.1 Confidence:0.9 Sensitive:true Topic:PII}
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Decision: DENY (Reason: Policy denied the request)
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Blocking request fdbfce34-c99d-441d-adbd-7ce2a1bb51f0: Policy denied the request
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Facts: &{Intent:Extract PII Risk:0.9 Confidence:0.9 Sensitive:true Topic:PII}
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Decision: DENY (Reason: Policy denied the request)
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Blocking request 9e014366-cf0f-4773-b135-35be37b26c75: Policy denied the request
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Facts: &{Intent:Extract PII Risk:0.1 Confidence:0.9 Sensitive:true Topic:PII}
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Decision: DENY (Reason: Policy denied the request)
+[guardrail] 2026/02/08 18:12:12 handler.go:176: [INFO] Blocking request f7a8c9bf-bb4c-4b02-9d39-6a590f6cdfdf: Policy denied the request

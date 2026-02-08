@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/chain"
+	"github.com/blackrose-blackhat/agent-guardrail/backend/pkg/models"
 )
 
 // OllamaProvider implements the Provider interface for Ollama
@@ -29,6 +29,7 @@ type OllamaChatMessage struct {
 
 // OllamaChatResponse represents an Ollama chat response
 type OllamaChatResponse struct {
+	ID              string            `json:"id"`
 	Model           string            `json:"model"`
 	Message         OllamaChatMessage `json:"message"`
 	Done            bool              `json:"done"`
@@ -67,21 +68,21 @@ func (o *OllamaProvider) ForwardRequest(r *http.Request) (*http.Response, error)
 }
 
 // ParseRequest parses raw request body into normalized LLMRequest
-func (o *OllamaProvider) ParseRequest(body []byte) (*chain.LLMRequest, error) {
+func (o *OllamaProvider) ParseRequest(body []byte) (*models.LLMRequest, error) {
 	var ollamaReq OllamaChatRequest
 	if err := json.Unmarshal(body, &ollamaReq); err != nil {
 		return nil, err
 	}
 
-	messages := make([]chain.LLMMessage, len(ollamaReq.Messages))
+	messages := make([]models.Message, len(ollamaReq.Messages))
 	for i, msg := range ollamaReq.Messages {
-		messages[i] = chain.LLMMessage{
+		messages[i] = models.Message{
 			Role:    msg.Role,
 			Content: msg.Content,
 		}
 	}
 
-	return &chain.LLMRequest{
+	return &models.LLMRequest{
 		Model:    ollamaReq.Model,
 		Messages: messages,
 		Stream:   ollamaReq.Stream,
@@ -89,19 +90,28 @@ func (o *OllamaProvider) ParseRequest(body []byte) (*chain.LLMRequest, error) {
 }
 
 // ParseResponse parses raw response body into normalized LLMResponse
-func (o *OllamaProvider) ParseResponse(body []byte) (*chain.LLMResponse, error) {
+func (o *OllamaProvider) ParseResponse(body []byte) (*models.LLMResponse, error) {
 	var ollamaResp OllamaChatResponse
 	if err := json.Unmarshal(body, &ollamaResp); err != nil {
 		return nil, err
 	}
 
-	return &chain.LLMResponse{
-		Content: ollamaResp.Message.Content,
-		Model:   ollamaResp.Model,
-		Usage: &chain.Usage{
-			InputTokens:  ollamaResp.PromptEvalCount,
-			OutputTokens: ollamaResp.EvalCount,
-			TotalTokens:  ollamaResp.PromptEvalCount + ollamaResp.EvalCount,
+	return &models.LLMResponse{
+		ID:    ollamaResp.ID,
+		Model: ollamaResp.Model,
+		Choices: []models.Choice{
+			{
+				Index: 0,
+				Message: models.Message{
+					Role:    ollamaResp.Message.Role,
+					Content: ollamaResp.Message.Content,
+				},
+			},
+		},
+		Usage: models.Usage{
+			PromptTokens:     ollamaResp.PromptEvalCount,
+			CompletionTokens: ollamaResp.EvalCount,
+			TotalTokens:      ollamaResp.PromptEvalCount + ollamaResp.EvalCount,
 		},
 	}, nil
 }
@@ -112,6 +122,6 @@ func (o *OllamaProvider) SupportsStreaming() bool {
 }
 
 // GetUsage extracts usage information from a response
-func (o *OllamaProvider) GetUsage(resp *chain.LLMResponse) *chain.Usage {
-	return resp.Usage
+func (o *OllamaProvider) GetUsage(resp *models.LLMResponse) *models.Usage {
+	return &resp.Usage
 }

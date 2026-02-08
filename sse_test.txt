@@ -1,45 +1,0 @@
-* Uses proxy env variable NO_PROXY == '*.azureedge.net'
-* Host localhost:8080 was resolved.
-* IPv6: ::1
-* IPv4: 127.0.0.1
-  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0*   Trying [::1]:8080...
-* Established connection to localhost (::1 port 8080) from ::1 port 38662 
-* using HTTP/1.x
-> GET /mcp/sse HTTP/1.1
-> Host: localhost:8080
-> User-Agent: curl/8.18.0
-> Accept: */*
-> 
-* Request completely sent off
-< HTTP/1.1 200 OK
-< Access-Control-Allow-Headers: *
-< Access-Control-Allow-Methods: GET, OPTIONS
-< Access-Control-Allow-Origin: *
-< Cache-Control: no-cache
-< Connection: keep-alive
-< Content-Type: text/event-stream
-< X-Accel-Buffering: no
-< Date: Sat, 07 Feb 2026 06:59:55 GMT
-< Transfer-Encoding: chunked
-< 
-{ [94 bytes data]
-event: endpoint
-data: http://localhost:8080/mcp/message?session_id=1770447595538739816
-
-100     88   0     88   0      0     72      0           00:01             73100     88   0     88   0      0     39      0           00:02             39100     88   0     88   0      0     27      0           00:03             27100     88   0     88   0      0     20      0           00:04             20100     88   0     88   0      0     16      0           00:05             16100     88   0     88   0      0     14      0           00:06              0100     88   0     88   0      0     12      0           00:07              0100     88   0     88   0      0     10      0           00:08              0100     88   0     88   0      0      9      0           00:09              0100     88   0     88   0      0      8      0           00:10              0100     88   0     88   0      0      7      0           00:11              0100     88   0     88   0      0      7      0           00:12              0100     88   0     88   0      0      6      0           00:13              0100     88   0     88   0      0      6      0           00:14              0:
-
-100     91   0     91   0      0      5      0           00:16              0100     91   0     91   0      0      5      0           00:17              0100     91   0     91   0      0      5      0           00:18              0event: message
-data: {"jsonrpc":"2.0","id":1,"result":{"capabilities":{"logging":{},"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":false}},"protocolVersion":"2025-06-18","serverInfo":{"name":"agent-guardrail","version":"1.0.0"}}}
-
-100    382   0    382   0      0     19      0           00:19             48100    382   0    382   0      0     18      0           00:20             48100    382   0    382   0      0     17      0           00:21             54100    382   0    382   0      0     17      0           00:22             54100    382   0    382   0      0     16      0           00:23             54100    382   0    382   0      0     15      0           00:24              0100    382   0    382   0      0     15      0           00:25              0100    382   0    382   0      0     14      0           00:26              0100    382   0    382   0      0     13      0           00:27              0100    382   0    382   0      0     13      0           00:28              0100    382   0    382   0      0     12      0           00:29              0:
-
-100    385   0    385   0      0     12      0           00:31              0100    385   0    385   0      0     12      0           00:32              0100    385   0    385   0      0     11      0           00:33              0100    385   0    385   0      0     11      0           00:34              0100    385   0    385   0      0     10      0           00:35              0100    385   0    385   0      0     10      0           00:36              0100    385   0    385   0      0     10      0           00:37              0100    385   0    385   0      0     10      0           00:38              0100    385   0    385   0      0      9      0           00:39              0100    385   0    385   0      0      9      0           00:40              0100    385   0    385   0      0      9      0           00:41              0100    385   0    385   0      0      9      0           00:42              0100    385   0    385   0      0      8      0           00:43              0100    385   0    385   0      0      8      0           00:44              0:
-
-100    388   0    388   0      0      8      0           00:46              0100    388   0    388   0      0      8      0           00:47              0100    388   0    388   0      0      8      0           00:48              0100    388   0    388   0      0      7      0           00:49              0100    388   0    388   0      0      7      0           00:50              0100    388   0    388   0      0      7      0           00:51              0100    388   0    388   0      0      7      0           00:52              0100    388   0    388   0      0      7      0           00:53              0100    388   0    388   0      0      7      0           00:54              0100    388   0    388   0      0      7      0           00:55              0100    388   0    388   0      0      6      0           00:56              0100    388   0    388   0      0      6      0           00:57              0100    388   0    388   0      0      6      0           00:58              0100    388   0    388   0      0      6      0           00:59              0:
-
-100    391   0    391   0      0      6      0           01:01              0100    391   0    391   0      0      6      0           01:02              0100    391   0    391   0      0      6      0           01:03              0100    391   0    391   0      0      6      0           01:04              0100    391   0    391   0      0      6      0           01:05              0100    391   0    391   0      0      5      0           01:06              0100    391   0    391   0      0      5      0           01:07              0100    391   0    391   0      0      5      0           01:08              0* transfer closed with outstanding read data remaining
-100    391   0    391   0      0      5      0           01:09              0
-* closing connection #0
-curl: (18) transfer closed with outstanding read data remaining
