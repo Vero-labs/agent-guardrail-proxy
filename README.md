@@ -142,10 +142,10 @@ flowchart TD
         Aggregator --> Cap[Capability Scanner]
         Aggregator --> CanaryIn[Canary Detector Input]
 
-        Aggregator --> Cache{Semantic Cache FAISS}
+        Aggregator --> Cache{In-Memory LRU Cache}
         Cache -- Hit --> CacheResult[Cached Intent]
         Cache -- Miss --> Intent[IntentAnalyzer Sidecar]
-        Intent --> Models[BART/MiniLM/DeBERTa]
+        Intent --> Models[BART-MNLI Model]
     end
 
     PII & Tox & Inj & Cap & CanaryIn & CacheResult & Models --> Context[Context Builder]
@@ -172,6 +172,25 @@ flowchart TD
     LLM --> CanaryOut[Canary Output Check]
     CanaryOut --> FinalResponse([Response Stream])
 ```
+
+## ⚙️ System Specifications (v2.4)
+
+### 1. Intent Classification
+- **Model**: `facebook/bart-large-mnli` (Zero-Shot Classification)
+- **Deployment**: Local Python Sidecar (MPS/CPU optimized)
+- **Latency**: ~300ms (P95) with caching enabled
+- **Fallback**: 30ms Fast-Path Heuristics for greetings/exploits
+
+### 2. Signal Extractors
+- **PII Detector**: 4 regex patterns (Email, SSN, Credit Card, Phone)
+- **Toxicity**: 11 keyword/regex patterns
+- **Injection**: 22 adversarial patterns (DAN, Ignore instructions, etc.)
+- **Capabilities**: Lexical scan for dangerous system calls (`os.system`, `subprocess`)
+
+### 3. Policy Engine
+- **Engine**: Cedar (Policy-as-Code)
+- **Granularity**: Role-Aware + Asset Sensitivity
+- **Performance**: <2ms evaluation time
 
 ## 🔌 Integration Examples
 
