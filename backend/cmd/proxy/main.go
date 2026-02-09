@@ -35,22 +35,48 @@ func main() {
 	}
 	logger.Printf("Provider: %s (%s)", p.Name(), cfg.ProviderUrl)
 
-	// Initialize LLM Intent Analyzer
+	// Initialize legacy LLM Intent Analyzer (soft-deprecated)
 	intentAnalyzer := analyzer.NewAnalyzer(p)
 
+	// Initialize new BART-based Intent Analyzer (Semantic Classification)
+	var bartIntentAnalyzer *analyzer.IntentAnalyzer
+	intentAnalyzerURL := os.Getenv("INTENT_ANALYZER_URL")
+	semanticCacheURL := os.Getenv("SEMANTIC_CACHE_URL")
+	if intentAnalyzerURL != "" {
+		bartIntentAnalyzer = analyzer.NewIntentAnalyzer(intentAnalyzerURL, semanticCacheURL)
+		logger.Printf("Intent Analyzer (BART) initialized at: %s (Cache: %s)", intentAnalyzerURL, semanticCacheURL)
+	}
+
+	// Initialize Deterministic Signal Aggregator
+	signalAggregator := analyzer.NewSignalAggregator()
+	logger.Println("Signal aggregator initialized (PII, Toxicity, Injection)")
+
+	// Initialize Heuristic Analyzer (Fast-Path)
+	heuristicAnalyzer := analyzer.NewHeuristicAnalyzer()
+	logger.Println("Heuristic Analyzer (Fast-Path) initialized")
+
 	// Initialize Cedar Policy Engine
-	cedarEngine, err := cedar.NewEngine("backend/internal/cedar/policies.cedar")
+	policyPath := os.Getenv("POLICY_PATH")
+	if policyPath == "" {
+		policyPath = "backend/internal/cedar/policies.cedar"
+	}
+
+	cedarEngine, err := cedar.NewEngine(policyPath)
 	if err != nil {
 		logger.Fatalf("Failed to initialize Cedar Engine: %v", err)
 	}
+	logger.Printf("Cedar policy engine loaded from %s", policyPath)
 
 	// Create handler config
 	handlerConfig := &proxy.HandlerConfig{
-		Config:      cfg,
-		Provider:    p,
-		Analyzer:    intentAnalyzer,
-		CedarEngine: cedarEngine,
-		Logger:      logger,
+		Config:            cfg,
+		Provider:          p,
+		Analyzer:          intentAnalyzer,
+		IntentAnalyzer:    bartIntentAnalyzer,
+		HeuristicAnalyzer: heuristicAnalyzer,
+		SignalAggregator:  signalAggregator,
+		CedarEngine:       cedarEngine,
+		Logger:            logger,
 	}
 
 	// Setup routes

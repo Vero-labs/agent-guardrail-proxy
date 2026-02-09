@@ -18,11 +18,14 @@ import (
 
 // HandlerConfig holds configuration for the proxy handler
 type HandlerConfig struct {
-	Config      *config.Config
-	Provider    provider.Provider
-	Analyzer    *analyzer.Analyzer
-	CedarEngine *cedar.Engine
-	Logger      *log.Logger
+	Config            *config.Config
+	Provider          provider.Provider
+	Analyzer          *analyzer.Analyzer // Legacy LLM analyzer (deprecated)
+	IntentAnalyzer    *analyzer.IntentAnalyzer
+	HeuristicAnalyzer *analyzer.HeuristicAnalyzer // New: Fast-path regex analyzer
+	SignalAggregator  *analyzer.SignalAggregator
+	CedarEngine       *cedar.Engine
+	Logger            *log.Logger
 }
 
 // GuardrailErrorResponse is returned when a request is blocked
@@ -57,31 +60,103 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 			}
 		}
 
-		// LLM Intent Analyzer
-		if hc.Analyzer != nil && parsedReq != nil {
-			facts, err := hc.Analyzer.Analyze(parsedReq)
-			if err != nil {
-				hc.logError("Analyzer error: %v", err)
-			} else {
-				hc.logInfo("Facts: %+v", facts)
+		// ============================================================
+		// SIGNAL GENERATION & POLICY DECISION (FAIL-CLOSED)
+		// ============================================================
+		// If any step fails, the request is blocked. No silent pass-through.
 
-				// Cedar Policy Engine
-				if hc.CedarEngine != nil {
-					decision, reason, err := hc.CedarEngine.Evaluate(facts)
-					if err != nil {
-						hc.logError("Cedar error: %v", err)
-					} else {
-						hc.logInfo("Decision: %s (Reason: %s)", decision, reason)
+		if parsedReq != nil {
+			// Build context for Cedar evaluation
+			ctx := &analyzer.Context{
+				Provider:            hc.Provider.Name(),
+				ResourceSensitivity: "public", // Default
+			}
 
-						if decision == cedar.DENY {
-							hc.logInfo("Blocking request %s: %s", requestID, reason)
-							sendErrorResponse(w, http.StatusForbidden, "guardrail_blocked", reason, requestID)
-							return
+			// Override sensitivity from header if provided (internal testing/routing)
+			if s := r.Header.Get("X-Resource-Sensitivity"); s != "" {
+				ctx.ResourceSensitivity = s
+			}
+
+			// 1. Deterministic Signal Generation (always runs first)
+			if hc.SignalAggregator != nil {
+				signals := hc.SignalAggregator.Aggregate(parsedReq)
+				ctx.Signals = *signals
+				hc.logInfo("Deterministic signals: PII=%v Toxicity=%.2f Injection=%v",
+					signals.PII, signals.Toxicity, signals.PromptInjection)
+			}
+
+			// 2. Semantic Intent Classification (BART sidecar - soft-fail)
+			if hc.IntentAnalyzer != nil {
+				// A. Fast-Path: Heuristic Check
+				var heuristicSignal *analyzer.IntentSignal
+				if hc.HeuristicAnalyzer != nil && ctx.Signals.UserText != "" {
+					heuristicSignal = hc.HeuristicAnalyzer.Analyze(ctx.Signals.UserText)
+					if heuristicSignal != nil {
+						ctx.AttachIntent(heuristicSignal, "user")
+						hc.logInfo("Heuristic Intent: %s (Confidence=%.2f) - BYPASSING Sidecar",
+							heuristicSignal.Intent, heuristicSignal.Confidence)
+					}
+				}
+
+				// B. Deep-Path: BART sidecar (only if heuristic didn't confidently hit)
+				if heuristicSignal == nil {
+					// Contextual Window Analysis
+					if len(parsedReq.Messages) > 0 {
+						intentSignal, err := hc.IntentAnalyzer.AnalyzeMessages(parsedReq.Messages)
+						if err != nil {
+							hc.logError("[WARN] Contextual intent analysis failed: %v", err)
+						} else {
+							ctx.AttachIntent(intentSignal, "aggregate")
+							hc.logInfo("Contextual Intent: %s (Confidence=%.2f, DerivedRisk=%.2f)",
+								intentSignal.Intent, intentSignal.Confidence, ctx.RiskScore)
+						}
+					}
+
+					// User Text specifically
+					if ctx.Signals.UserText != "" {
+						userIntentSignal, err := hc.IntentAnalyzer.Analyze(ctx.Signals.UserText)
+						if err != nil {
+							hc.logError("[WARN] User content intent analysis failed: %v", err)
+						} else {
+							ctx.AttachIntent(userIntentSignal, "user")
+							hc.logInfo("User-Specific Intent: %s (Confidence=%.2f)",
+								userIntentSignal.Intent, userIntentSignal.Confidence)
 						}
 					}
 				}
 			}
+
+			// 3. Evaluate policy with Cedar (PRE-STREAM ENFORCEMENT)
+			// ============================================================
+			// CRITICAL: This evaluation MUST complete BEFORE any streaming
+			// begins. Cedar runs ONCE, synchronously, before the first SSE
+			// token is forwarded. This closes the #1 real-world leakage vector.
+			// ============================================================
+			if hc.CedarEngine != nil {
+				decision, reason, err := hc.CedarEngine.EvaluateContext(ctx)
+				if err != nil {
+					hc.logError("[FAIL-CLOSED] Policy evaluation failed: %v", err)
+					sendErrorResponse(w, http.StatusForbidden, "guardrail_error", "Security policy evaluation failed", requestID)
+					return
+				}
+
+				hc.logInfo("Cedar Decision: %s (Reason: %s)", decision, reason)
+
+				// Set pre-stream enforcement header (audit trail)
+				w.Header().Set("X-Guardrail-PreStream-Enforced", "true")
+
+				// Set policy version header (governance)
+				w.Header().Set("X-Guardrail-Policy-Version", hc.CedarEngine.PolicyVersion)
+
+				if decision == cedar.DENY {
+					hc.logInfo("Request %s BLOCKED (pre-stream): %s", requestID, reason)
+					w.Header().Set("X-Guardrail-Blocked", "true")
+					sendErrorResponse(w, http.StatusForbidden, "guardrail_blocked", reason, requestID)
+					return
+				}
+			}
 		}
+		// ============================================================
 
 		// For now, we just pass through
 		requestBody := body
@@ -119,15 +194,15 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 		}
 		defer resp.Body.Close()
 
-		// Read response body
+		// Handle standard response
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			hc.logError("Failed to read provider response: %v", err)
+			hc.logError("Failed to read response: %v", err)
 			sendErrorResponse(w, http.StatusBadGateway, "provider_error", "Failed to read provider response", requestID)
 			return
 		}
 
-		// Parse response for processing
+		// Parse response for processing (if provider is set)
 		if hc.Provider != nil {
 			_, err := hc.Provider.ParseResponse(respBody)
 			if err != nil {

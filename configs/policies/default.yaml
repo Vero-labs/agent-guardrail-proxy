@@ -1,14 +1,18 @@
 id: default
 name: Default Security Policy
-description: A balanced security policy providing essential guardrails for LLM interactions
-version: "1.0.0"
+description: Signal-only policy configuration for Cedar-governed LLM interactions
+version: "2.0.0"
+
+# IMPORTANT: This file configures SIGNAL GENERATORS only.
+# All enforcement decisions are made by Cedar policies in policies.cedar.
+# Do NOT add action: fields here - they are ignored.
 
 guardrails:
   input:
     prompt_injection:
       enabled: true
       sensitivity: medium
-      action: block
+      emit: prompt_injection  # Emits boolean signal to context.signals.prompt_injection
       custom_patterns: []
 
     pii_detection:
@@ -18,34 +22,34 @@ guardrails:
         - phone
         - ssn
         - credit_card
-      action: redact
+      emit: pii  # Emits []string signal to context.signals.pii
 
     topic_boundary:
       enabled: true
-      allowed_topics: [] # Empty = allow all topics
+      allowed_topics: []
       blocked_topics:
         - violence
         - illegal_activity
         - harmful_content
         - explicit_content
-      action: block
+      emit: topic  # Emits string signal to context.signals.topic
 
     toxicity:
       enabled: true
       threshold: 0.7
-      action: block
+      emit: toxicity  # Emits float signal to context.signals.toxicity
 
   output:
     hallucination_detection:
       enabled: true
       grounding_sources: []
-      action: warn
+      emit: hallucination  # Emits boolean signal
 
     format_validation:
       enabled: false
       schema: null
       strict_mode: false
-      action: warn
+      emit: format_violation
 
     content_moderation:
       enabled: true
@@ -54,12 +58,11 @@ guardrails:
         - violence
         - self_harm
         - sexual
-      action: filter
+      emit: moderation  # Emits []string signal
 
     llm_judge:
       enabled: false
       model: ""
-      action: warn
       categories:
         - hate
         - violence
@@ -70,46 +73,21 @@ guardrails:
       threshold: 0.6
       max_tokens: 256
       temperature: 0.0
-      fail_open: true
+      emit: llm_judge  # Emits structured signal
 
   deterministic_controls:
     rate_limit:
       enabled: true
-      requests_per_minute: 5 # Set low for verification
+      requests_per_minute: 5
       requests_per_hour: 100
       key_by: global
     payload_size:
       enabled: true
-      max_request_size: 10485760 # 10MB
+      max_request_size: 10485760
       max_messages: 50
     max_tokens:
       enabled: true
       max_input_tokens: 4096
-
-actions:
-  block:
-    type: reject
-    message: "Request blocked due to policy violation"
-    add_warning: false
-    log_level: warn
-
-  redact:
-    type: modify
-    message: "Sensitive information has been redacted"
-    add_warning: true
-    log_level: info
-
-  warn:
-    type: pass
-    message: "Warning: potential issue detected"
-    add_warning: true
-    log_level: info
-
-  filter:
-    type: modify
-    message: "Content has been filtered"
-    add_warning: true
-    log_level: info
 
 logging:
   level: info
