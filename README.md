@@ -128,32 +128,49 @@ False positives: 0
 
 ## 🏗️ Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                   GUARDRAIL PROXY                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────┐  │
-│  │ Injection   │  │ Toxicity    │  │ Capability       │  │
-│  │ Detector    │  │ Scorer      │  │ Scanner          │  │
-│  │ (22 regex)  │  │ (11 regex)  │  │ (lexical)        │  │
-│  └──────┬──────┘  └──────┬──────┘  └────────┬─────────┘  │
-│         └────────────────┼──────────────────┘            │
-│                          ▼                               │
-│                  ┌──────────────┐                        │
-│                  │  BART-MNLI   │                        │
-│                  │   (intent)   │                        │
-│                  └──────┬───────┘                        │
-│                         ▼                                │
-│                 ┌───────────────┐                        │
-│                 │ CEDAR POLICY  │                        │
-│                 │    ENGINE     │                        │
-│                 └───────────────┘                        │
-│                         │                                │
-│                         ▼                                │
-│                  ┌─────────────┐                         │
-│                  │ Groq/OpenAI │                         │
-│                  │   Backend   │                         │
-│                  └─────────────┘                         │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    User([User Input]) --> Proxy[Proxy Executor]
+    Proxy --> Aggregator[Signal Aggregator]
+
+    subgraph Signal_Layer [Signal Extraction Layer]
+        Aggregator --> Deterministic[Deterministic Detectors]
+        Deterministic --> PII[PIIDetector]
+        Deterministic --> Tox[ToxicityDetector]
+        Deterministic --> Inj[InjectionDetector]
+
+        Aggregator --> Cap[Capability Scanner]
+        Aggregator --> CanaryIn[Canary Detector Input]
+
+        Aggregator --> Cache{Semantic Cache FAISS}
+        Cache -- Hit --> CacheResult[Cached Intent]
+        Cache -- Miss --> Intent[IntentAnalyzer Sidecar]
+        Intent --> Models[BART/MiniLM/DeBERTa]
+    end
+
+    PII & Tox & Inj & Cap & CanaryIn & CacheResult & Models --> Context[Context Builder]
+    Context --> JSON[Context JSON]
+
+    JSON --> Cedar{Cedar Policy Engine}
+    
+    Cedar -- ALLOW --> Enforce[Enforcement Logic]
+    Cedar -- DENY --> Enforce
+    Cedar -- REDACT --> Enforce
+
+    subgraph Headers [Security Headers]
+        H1[X-Guardrail-Policy-Version]
+        H2[X-Guardrail-Blocked]
+        H3[X-Guardrail-PreStream-Enforced]
+    end
+
+    Enforce -.-> Headers
+    Enforce --> PreStream{Pre-Stream Check}
+
+    PreStream -- Blocked --> Response403([403 Forbidden])
+    PreStream -- Allowed --> LLM[LLM Provider]
+
+    LLM --> CanaryOut[Canary Output Check]
+    CanaryOut --> FinalResponse([Response Stream])
 ```
 
 ## 🔌 Integration Examples
