@@ -1,2 +1,15 @@
 .env
 bin/
+proxy
+mcp
+mcp-server
+*.log
+*.sqlite
+services/intent-analyzer/venv/
+services/intent-analyzer/__pycache__/
+services/intent-analyzer/.pytest_cache/
+tests/__pycache__/
+tests/.pytest_cache/
+monitoring/grafana/
+monitoring/prometheus/
+.DS_Store
