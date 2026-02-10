@@ -245,6 +245,13 @@ func (e *Engine) EvaluateContextWithResult(ctx *analyzer.Context) EvaluationResu
 		"trusted": cedar.Boolean(ctx.SourceData.Trusted),
 	}
 
+	// Build Malware set
+	malValues := make([]cedar.Value, len(ctx.Signals.Malware))
+	for i, mal := range ctx.Signals.Malware {
+		malValues[i] = cedar.String(mal)
+	}
+	malSet := cedar.NewSet(malValues...)
+
 	req := cedar.Request{
 		Principal: cedar.NewEntityUID("User", "default"),
 		Action:    cedar.NewEntityUID("Action", "chat"),
@@ -257,11 +264,13 @@ func (e *Engine) EvaluateContextWithResult(ctx *analyzer.Context) EvaluationResu
 			"risk_score":    cedar.Long(int64(ctx.RiskScore * 100)),
 			"confidence":    cedar.Long(int64(ctx.Confidence * 100)),
 			// Deterministic signals
-			"pii":              piiSet,
-			"toxicity":         cedar.Long(int64(ctx.Signals.Toxicity * 100)),
-			"prompt_injection": cedar.Boolean(ctx.Signals.PromptInjection),
-			"topic":            cedar.String(ctx.Signals.Topic),
-			"capabilities":     capSet,
+			"pii":                piiSet,
+			"toxicity":           cedar.Long(int64(ctx.Signals.Toxicity * 100)),
+			"prompt_injection":   cedar.Boolean(ctx.Signals.PromptInjection),
+			"topic":              cedar.String(ctx.Signals.Topic),
+			"capabilities":       capSet,
+			"malware":            malSet,
+			"indirect_injection": cedar.Boolean(ctx.Signals.IndirectInjection),
 			// Request metadata
 			"streaming": cedar.Boolean(ctx.Request.Streaming),
 			"tokens":    cedar.Long(int64(ctx.Request.Tokens)),

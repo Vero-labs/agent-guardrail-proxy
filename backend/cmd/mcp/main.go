@@ -232,7 +232,7 @@ func main() {
 			case "get_policy_info":
 				resp.Result = map[string]interface{}{
 					"content": []map[string]interface{}{
-						{"type": "text", "text": fmt.Sprintf("Policy Version: %s\nLoaded from: %s\n\nThe policy enforces:\n- Block high-risk intents (code.exploit, system)\n- Block prompt injection attempts\n- Block PII exposure\n- Require low toxicity\n- Asset sensitivity controls", cedarEngine.PolicyVersion, policyPath)},
+						{"type": "text", "text": fmt.Sprintf("Policy Version: %s\nLoaded from: %s\n\nThe policy enforces:\n- Block high-risk intents (code.exploit, system)\n- Block prompt injection attempts\n- Block PII exposure\n- Require low toxicity\n- Asset sensitivity controls", cedarEngine.PolicyVersion(), policyPath)},
 					},
 				}
 

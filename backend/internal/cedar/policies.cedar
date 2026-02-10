@@ -28,13 +28,15 @@
 // =============================================================================
 // SECTION 1: FAIL-OPEN DEFAULT (Baseline Permit)
 // =============================================================================
-// If no other policies match, allow the request.
-// This is the lowest priority rule - all forbid rules override this.
+// 1.1 Default Permit - Allow chat if no PII is present
 permit(
     principal,
     action == Action::"chat",
     resource
-);
+)
+when {
+    context.pii.isEmpty()
+};
 
 // =============================================================================
 // SECTION 2: GLOBAL SAFETY BLOCKS (Highest Priority)
@@ -158,15 +160,17 @@ when {
     context.pii.contains("credit_card")
 };
 
-// 4.2 Block PII with unknown intent (ambiguity + sensitive data = risk)
-forbid(
+// 4.2 Redact non-critical PII (email, phone) instead of blocking
+@obligation("REDACT")
+@fields("email,phone")
+permit(
     principal,
     action == Action::"chat",
     resource
 )
 when {
-    context.intent == "unknown" &&
-    context.pii.containsAny(["email", "phone", "ssn", "credit_card"])
+    context.pii.containsAny(["email", "phone"]) &&
+    !(context.pii.contains("ssn") || context.pii.contains("credit_card"))
 };
 
 // 4.3 Block PII queries from user messages specifically

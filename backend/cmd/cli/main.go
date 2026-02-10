@@ -51,10 +51,13 @@ func main() {
 		fmt.Printf("%sError: Failed to load Cedar policies: %v%s\n", colorRed, err, colorReset)
 		os.Exit(1)
 	}
+	// Enable quiet hot-reload for CLI
+	cedarEngine.StartHotReload()
+	defer cedarEngine.StopHotReload()
 
 	fmt.Printf("%s[✓] Components initialized%s\n", colorGreen, colorReset)
 	fmt.Printf("    Intent Analyzer: %s\n", intentAnalyzerURL)
-	fmt.Printf("    Policy: %s (v%s)\n", policyPath, cedarEngine.PolicyVersion)
+	fmt.Printf("    Policy: %s (v%s)\n", policyPath, cedarEngine.PolicyVersion())
 	fmt.Println()
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -93,6 +96,7 @@ type CheckResult struct {
 	PII             []string
 	Toxicity        float64
 	PromptInjection bool
+	Obligations     []string // Show active obligations
 }
 
 func checkPrompt(prompt string, signalAgg *analyzer.SignalAggregator, heuristic *analyzer.HeuristicAnalyzer, intent *analyzer.IntentAnalyzer, cedarEng *cedar.Engine) CheckResult {
@@ -133,11 +137,16 @@ func checkPrompt(prompt string, signalAgg *analyzer.SignalAggregator, heuristic 
 	}
 
 	// 3. Cedar Policy Evaluation
-	decision, reason, _ := cedarEng.EvaluateContext(ctx)
+	result := cedarEng.EvaluateContextWithResult(ctx)
+
+	var obligations []string
+	for _, obs := range result.Obligations {
+		obligations = append(obligations, fmt.Sprintf("%s (%v)", obs.Type, obs.Fields))
+	}
 
 	return CheckResult{
-		Decision:        string(decision),
-		Reason:          reason,
+		Decision:        string(result.Decision),
+		Reason:          result.Reason,
 		Intent:          intentStr,
 		Confidence:      confidence,
 		RiskScore:       ctx.RiskScore,
@@ -145,6 +154,7 @@ func checkPrompt(prompt string, signalAgg *analyzer.SignalAggregator, heuristic 
 		PII:             signals.PII,
 		Toxicity:        signals.Toxicity,
 		PromptInjection: signals.PromptInjection,
+		Obligations:     obligations,
 	}
 }
 
@@ -159,6 +169,9 @@ func printResult(r CheckResult) {
 	}
 
 	fmt.Printf("%sReason:%s %s\n", colorBold, colorReset, r.Reason)
+	if len(r.Obligations) > 0 {
+		fmt.Printf("%sObligations:%s %s%v%s\n", colorBold, colorReset, colorYellow, r.Obligations, colorReset)
+	}
 	fmt.Println()
 
 	// Details

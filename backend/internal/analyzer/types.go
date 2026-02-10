@@ -2,14 +2,16 @@ package analyzer
 
 // Signals contains all deterministic security signals
 type Signals struct {
-	PII             []string `json:"pii"`
-	Toxicity        float64  `json:"toxicity"`
-	PromptInjection bool     `json:"prompt_injection"`
-	Topic           string   `json:"topic"`
-	Capabilities    []string `json:"capabilities"`
-	UserText        string   `json:"user_text"`   // Extracted user content
-	SystemText      string   `json:"system_text"` // Extracted system content
-	FullText        string   `json:"full_text"`   // Combined for overall analysis
+	PII               []string `json:"pii"`
+	Toxicity          float64  `json:"toxicity"`
+	PromptInjection   bool     `json:"prompt_injection"`
+	Topic             string   `json:"topic"`
+	Capabilities      []string `json:"capabilities"`
+	Malware           []string `json:"malware"`            // NEW: Malware categories found
+	IndirectInjection bool     `json:"indirect_injection"` // NEW: Indirect injection markers
+	UserText          string   `json:"user_text"`          // Extracted user content
+	SystemText        string   `json:"system_text"`        // Extracted system content
+	FullText          string   `json:"full_text"`          // Combined for overall analysis
 }
 
 // RequestInfo contains metadata about the request

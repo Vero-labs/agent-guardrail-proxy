@@ -31,7 +31,7 @@ func NewIntentAnalyzer(endpoint string, cacheEndpoint string) *IntentAnalyzer {
 		endpoint:      endpoint,
 		cacheEndpoint: cacheEndpoint,
 		client: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		cache:      make(map[string]*IntentSignal),
 		maxEntries: 1000,
