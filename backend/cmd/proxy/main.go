@@ -12,6 +12,7 @@ import (
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/provider"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/proxy"
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func main() {
@@ -99,6 +100,9 @@ func main() {
 		}`, p.Name())
 		w.Write([]byte(status))
 	})
+
+	// Metrics endpoint (Prometheus)
+	http.Handle("/metrics", promhttp.Handler())
 
 	// Start server
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

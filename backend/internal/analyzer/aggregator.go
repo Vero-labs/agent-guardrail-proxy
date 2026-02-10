@@ -49,3 +49,13 @@ func (s *SignalAggregator) Aggregate(req *models.LLMRequest) *Signals {
 		FullText:        fullText,
 	}
 }
+
+// DetectPII runs PII detection on arbitrary text (used for output-side scanning)
+func (s *SignalAggregator) DetectPII(text string) []string {
+	return s.pii.Detect(text)
+}
+
+// RedactPII masks PII in arbitrary text
+func (s *SignalAggregator) RedactPII(text string, types []string) string {
+	return s.pii.Redact(text, types)
+}

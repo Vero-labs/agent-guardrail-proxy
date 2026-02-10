@@ -9,14 +9,14 @@ const (
 
 	// 2. Capabilities (Medium-High Risk)
 	IntentCodeGenerate = "code.generate"
-	IntentCodeExploit  = "code.exploit" // Malicious, injection-related code
-	IntentToolSafe     = "tool.safe"     // Calc, weather, search
+	IntentCodeExploit  = "code.exploit"   // Malicious, injection-related code
+	IntentToolSafe     = "tool.safe"      // Calc, weather, search
 	IntentToolRisk     = "tool.dangerous" // RM, sudo, db access
 
 	// 3. Restricted (High Risk)
-	IntentFileRead    = "file.read"
-	IntentFileWrite   = "file.write"
-	IntentSystem      = "sys.control"
+	IntentFileRead  = "file.read"
+	IntentFileWrite = "file.write"
+	IntentSystem    = "sys.control"
 
 	// 4. Conversational (Zero Risk)
 	IntentConvGreeting = "conv.greeting"
@@ -31,45 +31,12 @@ type IntentSignal struct {
 	Confidence float64 `json:"confidence"` // 0.0 to 1.0
 }
 
-// RiskFromIntent derives risk score from intent class and confidence
+// RiskFromIntent returns the confidence as the risk signal.
+// NOTE: All intent-specific risk weighting has been moved to Cedar policies.
+// This function is now policy-neutral - Cedar evaluates intent + confidence directly.
 func RiskFromIntent(intent string, confidence float64) float64 {
-	baseRisk := 0.0
-
-	// Weighted Risk Matrix
-	switch intent {
-	case IntentSystem, IntentFileWrite, IntentToolRisk, IntentCodeExploit:
-		baseRisk = 0.85 // Critical operations
-
-	case IntentInfoQueryPII, IntentFileRead:
-		baseRisk = 0.60 // Sensitive data access
-
-	case IntentCodeGenerate:
-		baseRisk = 0.40 // Potential for injection/exploits
-
-	case IntentUnknown:
-		baseRisk = 0.35 // Ambiguity penalty
-
-	case IntentToolSafe:
-		baseRisk = 0.20 // Safe utility usage
-
-	case IntentInfoQuery, IntentInfoSummarize:
-		baseRisk = 0.10 // Pure informational
-
-	case IntentConvGreeting, IntentConvOther:
-		baseRisk = 0.05 // Safe conversational
-	}
-
-	// Ambiguity Risk Adjustment
-	// Low confidence in high-risk intents increases risk exponentially
-	if confidence < 0.7 {
-		penalty := (0.7 - confidence) * 0.5
-		baseRisk += penalty
-	}
-
-	// Cap at 1.0
-	if baseRisk > 1.0 {
-		baseRisk = 1.0
-	}
-
-	return baseRisk
+	// Return confidence directly - Cedar policies handle intent-specific thresholds
+	// Example Cedar policy for high-risk intents:
+	//   forbid when context.intent == "code.exploit" && context.confidence > 40
+	return confidence
 }

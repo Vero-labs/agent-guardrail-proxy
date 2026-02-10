@@ -37,10 +37,12 @@ Agent Guardrail is a **Zero-Trust AI Control Plane** that sits between clients a
 |-----------|----------------|
 | **Fail-Closed** | Any error → `403 Forbidden`. No silent pass-through. |
 | **Pre-Stream Block** | Cedar runs ONCE before any SSE tokens are forwarded. |
-| **Policy-Only Decisions** | Cedar is the sole authority. No in-line logic. |
+| **Policy-Only Decisions** | Cedar is the sole authority. **No hardcoded risk logic in Go code.** |
 | **Write-Once Context** | Intent/risk cannot be overwritten after first classification. |
 | **Deterministic Signals** | PII, Injection, Toxicity, Capabilities use regex — no ML drift. |
 | **Provider-Agnostic** | Works with Ollama, OpenAI, Claude, Gemini, or any OpenAI-compatible API. |
+| **Full Policy Control** | All risk thresholds and intent weighting are in `policies.cedar`. |
+
 
 ---
 

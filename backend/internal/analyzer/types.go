@@ -18,6 +18,20 @@ type RequestInfo struct {
 	Tokens    int  `json:"tokens"`
 }
 
+// AgentState tracks agentic workflow state for step/token budgeting
+type AgentState struct {
+	CurrentStep int `json:"current_step"` // Current step in agent loop
+	MaxSteps    int `json:"max_steps"`    // Maximum allowed steps (0 = unlimited)
+	TotalTokens int `json:"total_tokens"` // Tokens consumed so far
+	TokenBudget int `json:"token_budget"` // Maximum token budget (0 = unlimited)
+}
+
+// SourceData tracks content origin for indirect injection defense
+type SourceData struct {
+	Origin  string `json:"origin"`  // "user", "system", "tool_output", "untrusted_web"
+	Trusted bool   `json:"trusted"` // Whether the content is from a trusted source
+}
+
 // Context is the structured input to Cedar policy evaluation
 type Context struct {
 	// Semantic signals from LLM analyzer
@@ -33,6 +47,12 @@ type Context struct {
 
 	// Request metadata
 	Request RequestInfo `json:"request"`
+
+	// Agentic workflow state (Phase 2)
+	AgentState AgentState `json:"agent_state"`
+
+	// Content origin tracking (Phase 3 - indirect injection defense)
+	SourceData SourceData `json:"source_data"`
 
 	// Provider info
 	Provider string `json:"provider"`
@@ -60,9 +80,11 @@ func (f *Facts) ToContext() *Context {
 	}
 }
 
-// AttachIntent adds intent signal to context with role-aware and highest-risk-wins semantics
+// AttachIntent adds intent signal to context.
+// NOTE: Role-based weighting has been moved to Cedar policies.
+// This function is now policy-neutral - it just attaches signals for Cedar to evaluate.
 func (c *Context) AttachIntent(sig *IntentSignal, role string) {
-	// Set role-specific intent
+	// Set role-specific intent for Cedar to evaluate separately
 	switch role {
 	case "user":
 		c.UserIntent = sig.Intent
@@ -70,19 +92,11 @@ func (c *Context) AttachIntent(sig *IntentSignal, role string) {
 		c.SystemIntent = sig.Intent
 	}
 
-	// Calculate risk for this specific signal
+	// Calculate risk from confidence (no hardcoded intent weighting)
 	currentRisk := RiskFromIntent(sig.Intent, sig.Confidence)
 
-	// User-role intents are weighted higher for risk calculation (Zero-Trust)
-	if role == "user" {
-		currentRisk += 0.1
-		if currentRisk > 1.0 {
-			currentRisk = 1.0
-		}
-	}
-
-	// Aggregate Intent: Highest risk wins (Zero-Trust)
-	if currentRisk >= c.RiskScore {
+	// Aggregate: highest confidence wins (Cedar applies intent-specific thresholds)
+	if currentRisk >= c.RiskScore || c.Intent == "" {
 		c.Intent = sig.Intent
 		c.Confidence = sig.Confidence
 		c.RiskScore = currentRisk

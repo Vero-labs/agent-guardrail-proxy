@@ -11,6 +11,7 @@ import (
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/analyzer"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/cedar"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/config"
+	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/metrics"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/provider"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/pkg/models"
 	"github.com/google/uuid"
@@ -41,6 +42,9 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		startTime := time.Now()
 		requestID := uuid.New().String()
+
+		// METRIC: Record request start
+		metrics.RequestsTotal.Inc()
 
 		// Read request body
 		body, err := io.ReadAll(r.Body)
@@ -83,6 +87,17 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 				ctx.Signals = *signals
 				hc.logInfo("Deterministic signals: PII=%v Toxicity=%.2f Injection=%v",
 					signals.PII, signals.Toxicity, signals.PromptInjection)
+
+				// METRIC: Record detected signals
+				if len(signals.PII) > 0 {
+					metrics.RecordSignalDetected("pii")
+				}
+				if signals.Toxicity > 0.5 {
+					metrics.RecordSignalDetected("toxicity")
+				} // Threshold example
+				if signals.PromptInjection {
+					metrics.RecordSignalDetected("injection")
+				}
 			}
 
 			// 2. Semantic Intent Classification (BART sidecar - soft-fail)
@@ -95,6 +110,8 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 						ctx.AttachIntent(heuristicSignal, "user")
 						hc.logInfo("Heuristic Intent: %s (Confidence=%.2f) - BYPASSING Sidecar",
 							heuristicSignal.Intent, heuristicSignal.Confidence)
+						// METRIC: Record intent
+						metrics.RecordIntent(heuristicSignal.Intent)
 					}
 				}
 
@@ -109,6 +126,67 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 							ctx.AttachIntent(intentSignal, "aggregate")
 							hc.logInfo("Contextual Intent: %s (Confidence=%.2f, DerivedRisk=%.2f)",
 								intentSignal.Intent, intentSignal.Confidence, ctx.RiskScore)
+							// METRIC: Record intent
+							metrics.RecordIntent(intentSignal.Intent)
+						}
+					}
+
+					// User Text specifically
+					if ctx.Signals.UserText != "" {
+						userIntentSignal, err := hc.IntentAnalyzer.Analyze(ctx.Signals.UserText)
+						if err != nil {
+							hc.logError("[WARN] User content intent analysis failed: %v", err)
+						} else {
+							ctx.AttachIntent(userIntentSignal, "user")
+							hc.logInfo("User-Specific Intent: %s (Confidence=%.2f)",
+								userIntentSignal.Intent, userIntentSignal.Confidence)
+						}
+					}
+				}
+			}
+
+			// 3. Evaluate policy with Cedar (PRE-STREAM ENFORCEMENT)
+			// ============================================================
+			// CRITICAL: This evaluation MUST complete BEFORE any streaming
+			// begins. Cedar runs ONCE, synchronously, before the first SSE
+			// token is forwarded. This closes the #1 real-world leakage vector.
+			// ============================================================
+			if hc.CedarEngine != nil {
+				result := hc.CedarEngine.EvaluateContextWithResult(ctx)
+				decision := result.Decision
+				reason := result.Reason
+
+				hc.logInfo("Cedar Decision: %s (Reason: %s)", decision, reason)
+
+				// METRIC: Record decision
+				metrics.RecordDecision(string(decision))
+
+				// Set pre-stream enforcement header (audit trail)
+				w.Header().Set("X-Guardrail-PreStream-Enforced", "true")
+
+				// Set policy version header (governance)
+				w.Header().Set("X-Guardrail-Policy-Version", hc.CedarEngine.PolicyVersion())
+
+				if decision == cedar.DENY {
+					hc.logInfo("Request %s BLOCKED (pre-stream): %s", requestID, reason)
+					w.Header().Set("X-Guardrail-Blocked", "true")
+					sendErrorResponse(w, http.StatusForbidden, "guardrail_blocked", reason, requestID)
+					return
+				}
+
+				// Handle obligations (Phase 4 Optimization)
+				for _, obs := range result.Obligations {
+					if obs.Type == "REDACT" && parsedReq != nil {
+						hc.logInfo("Applying REDACT obligation on input: %v", obs.Fields)
+						// Redact messages in the parsed request
+						for i := range parsedReq.Messages {
+							parsedReq.Messages[i].Content = hc.SignalAggregator.RedactPII(parsedReq.Messages[i].Content, obs.Fields)
+						}
+						// Re-marshal the redacted request
+						newBody, err := json.Marshal(parsedReq)
+						if err == nil {
+							body = newBody // Use redacted body for forwarding
+							hc.logInfo("Input REDACTED successfully")
 						}
 					}
 
@@ -203,10 +281,36 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 		}
 
 		// Parse response for processing (if provider is set)
+		var responseContent string
 		if hc.Provider != nil {
-			_, err := hc.Provider.ParseResponse(respBody)
+			parsedResp, err := hc.Provider.ParseResponse(respBody)
 			if err != nil {
 				hc.logError("Failed to parse response: %v", err)
+			} else if len(parsedResp.Choices) > 0 {
+				responseContent = parsedResp.Choices[0].Message.Content
+			}
+		}
+
+		// ============================================================
+		// OUTPUT-SIDE GUARDRAILS (Phase 1)
+		// ============================================================
+		// Scan response content for PII before returning to client
+		if responseContent != "" && hc.SignalAggregator != nil {
+			// Reuse existing PII detector on response content
+			outputPII := hc.SignalAggregator.DetectPII(responseContent)
+			if len(outputPII) > 0 {
+				// Block if critical PII (SSN, credit card) found in output
+				for _, piiType := range outputPII {
+					if piiType == "ssn" || piiType == "credit_card" {
+						hc.logError("Output blocked: %s detected in LLM response", piiType)
+						w.Header().Set("X-Guardrail-Output-Blocked", "true")
+						sendErrorResponse(w, http.StatusForbidden, "output_guardrail_blocked",
+							"Response contained sensitive data and was blocked", requestID)
+						return
+					}
+				}
+				// Log warning for other PII types (email, phone) but allow through
+				hc.logInfo("Output warning: PII detected in response: %v", outputPII)
 			}
 		}
 
@@ -226,6 +330,7 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 
 		// Log request completion
 		duration := time.Since(startTime)
+		metrics.LatencyHistogram.Observe(duration.Seconds())
 		hc.logInfo("Request %s completed in %v", requestID, duration)
 	}
 }
