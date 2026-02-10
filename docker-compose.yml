@@ -1,0 +1,88 @@
+services:
+  # Guardrail Proxy (Go)
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PROVIDER_URL=https://api.groq.com/openai
+      - PROVIDER_TYPE=openai
+      - PROVIDER_KEY=${GROQ_API_KEY}
+      - POLICY_PATH=/app/policies.cedar
+      - INTENT_ANALYZER_URL=http://intent-analyzer:8001
+    depends_on:
+      - intent-analyzer
+    networks:
+      - guardrail-net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "--spider", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Intent Analyzer (Python/BART)
+  intent-analyzer:
+    build:
+      context: ./services/intent-analyzer
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - INTENT_ANALYZER_MODEL=bart
+    networks:
+      - guardrail-net
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+  # Prometheus (Metrics)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - guardrail-net
+    restart: unless-stopped
+
+  # Grafana (Dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=guardrail
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    networks:
+      - guardrail-net
+    restart: unless-stopped
+
+networks:
+  guardrail-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  hf-cache:

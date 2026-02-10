@@ -189,9 +189,52 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 							hc.logInfo("Input REDACTED successfully")
 						}
 					}
+
+					// User Text specifically
+					if ctx.Signals.UserText != "" {
+						userIntentSignal, err := hc.IntentAnalyzer.Analyze(ctx.Signals.UserText)
+						if err != nil {
+							hc.logError("[WARN] User content intent analysis failed: %v", err)
+						} else {
+							ctx.AttachIntent(userIntentSignal, "user")
+							hc.logInfo("User-Specific Intent: %s (Confidence=%.2f)",
+								userIntentSignal.Intent, userIntentSignal.Confidence)
+						}
+					}
+				}
+			}
+
+			// 3. Evaluate policy with Cedar (PRE-STREAM ENFORCEMENT)
+			// ============================================================
+			// CRITICAL: This evaluation MUST complete BEFORE any streaming
+			// begins. Cedar runs ONCE, synchronously, before the first SSE
+			// token is forwarded. This closes the #1 real-world leakage vector.
+			// ============================================================
+			if hc.CedarEngine != nil {
+				decision, reason, err := hc.CedarEngine.EvaluateContext(ctx)
+				if err != nil {
+					hc.logError("[FAIL-CLOSED] Policy evaluation failed: %v", err)
+					sendErrorResponse(w, http.StatusForbidden, "guardrail_error", "Security policy evaluation failed", requestID)
+					return
+				}
+
+				hc.logInfo("Cedar Decision: %s (Reason: %s)", decision, reason)
+
+				// Set pre-stream enforcement header (audit trail)
+				w.Header().Set("X-Guardrail-PreStream-Enforced", "true")
+
+				// Set policy version header (governance)
+				w.Header().Set("X-Guardrail-Policy-Version", hc.CedarEngine.PolicyVersion)
+
+				if decision == cedar.DENY {
+					hc.logInfo("Request %s BLOCKED (pre-stream): %s", requestID, reason)
+					w.Header().Set("X-Guardrail-Blocked", "true")
+					sendErrorResponse(w, http.StatusForbidden, "guardrail_blocked", reason, requestID)
+					return
 				}
 			}
 		}
+		// ============================================================
 
 		// For now, we just pass through
 		requestBody := body
@@ -229,10 +272,10 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 		}
 		defer resp.Body.Close()
 
-		// Read response body
+		// Handle standard response
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			hc.logError("Failed to read provider response: %v", err)
+			hc.logError("Failed to read response: %v", err)
 			sendErrorResponse(w, http.StatusBadGateway, "provider_error", "Failed to read provider response", requestID)
 			return
 		}
