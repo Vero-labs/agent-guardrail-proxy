@@ -32,14 +32,16 @@ type ToolResponse struct {
 // ToolPEP is the Policy Enforcement Point for tool invocations
 type ToolPEP struct {
 	cedarEngine *cedarPkg.Engine
+	hitlManager *HITLManager
 	auditLogger *audit.Logger
 	logger      *log.Logger
 }
 
 // NewToolPEP creates a new ToolPEP
-func NewToolPEP(engine *cedarPkg.Engine, auditLogger *audit.Logger, logger *log.Logger) *ToolPEP {
+func NewToolPEP(engine *cedarPkg.Engine, hitl *HITLManager, auditLogger *audit.Logger, logger *log.Logger) *ToolPEP {
 	return &ToolPEP{
 		cedarEngine: engine,
+		hitlManager: hitl,
 		auditLogger: auditLogger,
 		logger:      logger,
 	}
@@ -51,18 +53,14 @@ func (pep *ToolPEP) Authorize(ctx *analyzer.Context, req *ToolRequest) *ToolResp
 
 	// Build a minimal context for Cedar evaluation with tool-specific fields
 	toolCtx := &analyzer.Context{
-		Intent:     ctx.Intent,
-		Confidence: ctx.Confidence,
-		AgentState: ctx.AgentState,
-		SourceData: ctx.SourceData,
-		Signals:    ctx.Signals,
-		Provider:   ctx.Provider,
+		Intent:              ctx.Intent,
+		Confidence:          ctx.Confidence,
+		AgentState:          ctx.AgentState,
+		SourceData:          ctx.SourceData,
+		Signals:             ctx.Signals,
+		Provider:            ctx.Provider,
+		ResourceSensitivity: ctx.ResourceSensitivity,
 	}
-
-	// For tool authorization, we evaluate against Cedar policies
-	// The policy file should include rules like:
-	//   permit(principal, action == Action::"invoke_tool", resource == Tool::"search")
-	//   forbid(principal, action == Action::"invoke_tool", resource) when { context.agent_state.current_step > 10 }
 
 	// Use the standard context evaluation - policies should handle tool-specific logic
 	result := pep.cedarEngine.EvaluateContextWithResult(toolCtx)
@@ -74,9 +72,27 @@ func (pep *ToolPEP) Authorize(ctx *analyzer.Context, req *ToolRequest) *ToolResp
 		Obligations: result.Obligations,
 	}
 
+	// Handle obligations (Phase 4 Optimization)
+	for _, obs := range result.Obligations {
+		if obs.Type == "RequireApproval" && pep.hitlManager != nil {
+			pep.logInfo("Action requires human approval: %s", req.Tool)
+			hitlReq, err := pep.hitlManager.RequestApproval(
+				req.AgentID,
+				req.SessionID,
+				req.Tool,
+				result.Reason,
+				req.Arguments,
+			)
+			if err == nil {
+				// Block for now and indicate it needs approval
+				response.Allowed = false
+				response.Reason = fmt.Sprintf("Action pending human approval (HITL ID: %s)", hitlReq.ID)
+			}
+		}
+	}
+
 	if !response.Allowed {
-		response.Reason = fmt.Sprintf("Policy denied tool invocation: %s - %s", req.Tool, result.Reason)
-		pep.logInfo("Tool invocation DENIED: %s (request=%s)", req.Tool, requestID)
+		pep.logInfo("Tool invocation DENIED/PENDING: %s - %s (request=%s)", req.Tool, response.Reason, requestID)
 	} else {
 		pep.logInfo("Tool invocation ALLOWED: %s (request=%s)", req.Tool, requestID)
 	}
@@ -101,6 +117,7 @@ func (pep *ToolPEP) Authorize(ctx *analyzer.Context, req *ToolRequest) *ToolResp
 				"arguments":   req.Arguments,
 				"agent_state": ctx.AgentState,
 				"source_data": ctx.SourceData,
+				"obligations": response.Obligations,
 			},
 			Decision: decision,
 			Reason:   response.Reason,

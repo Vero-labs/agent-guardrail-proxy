@@ -42,3 +42,26 @@ func (p *PIIDetector) Detect(text string) []string {
 	}
 	return results
 }
+
+// Redact masks PII in text for specific types
+func (p *PIIDetector) Redact(text string, types []string) string {
+	redacted := text
+	typeMap := make(map[string]bool)
+	for _, t := range types {
+		typeMap[t] = true
+	}
+
+	if typeMap["email"] {
+		redacted = emailRegex.ReplaceAllString(redacted, "[EMAIL]")
+	}
+	if typeMap["phone"] {
+		redacted = phoneRegex.ReplaceAllString(redacted, "[PHONE]")
+	}
+	if typeMap["ssn"] {
+		redacted = ssnRegex.ReplaceAllString(redacted, "[SSN]")
+	}
+	if typeMap["credit_card"] {
+		redacted = creditCardRegex.ReplaceAllString(redacted, "[CREDIT_CARD]")
+	}
+	return redacted
+}

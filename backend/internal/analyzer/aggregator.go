@@ -54,3 +54,8 @@ func (s *SignalAggregator) Aggregate(req *models.LLMRequest) *Signals {
 func (s *SignalAggregator) DetectPII(text string) []string {
 	return s.pii.Detect(text)
 }
+
+// RedactPII masks PII in arbitrary text
+func (s *SignalAggregator) RedactPII(text string, types []string) string {
+	return s.pii.Redact(text, types)
+}

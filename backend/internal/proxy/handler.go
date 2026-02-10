@@ -152,12 +152,9 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 			// token is forwarded. This closes the #1 real-world leakage vector.
 			// ============================================================
 			if hc.CedarEngine != nil {
-				decision, reason, err := hc.CedarEngine.EvaluateContext(ctx)
-				if err != nil {
-					hc.logError("[FAIL-CLOSED] Policy evaluation failed: %v", err)
-					sendErrorResponse(w, http.StatusForbidden, "guardrail_error", "Security policy evaluation failed", requestID)
-					return
-				}
+				result := hc.CedarEngine.EvaluateContextWithResult(ctx)
+				decision := result.Decision
+				reason := result.Reason
 
 				hc.logInfo("Cedar Decision: %s (Reason: %s)", decision, reason)
 
@@ -176,9 +173,25 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 					sendErrorResponse(w, http.StatusForbidden, "guardrail_blocked", reason, requestID)
 					return
 				}
+
+				// Handle obligations (Phase 4 Optimization)
+				for _, obs := range result.Obligations {
+					if obs.Type == "REDACT" && parsedReq != nil {
+						hc.logInfo("Applying REDACT obligation on input: %v", obs.Fields)
+						// Redact messages in the parsed request
+						for i := range parsedReq.Messages {
+							parsedReq.Messages[i].Content = hc.SignalAggregator.RedactPII(parsedReq.Messages[i].Content, obs.Fields)
+						}
+						// Re-marshal the redacted request
+						newBody, err := json.Marshal(parsedReq)
+						if err == nil {
+							body = newBody // Use redacted body for forwarding
+							hc.logInfo("Input REDACTED successfully")
+						}
+					}
+				}
 			}
 		}
-		// ============================================================
 
 		// For now, we just pass through
 		requestBody := body

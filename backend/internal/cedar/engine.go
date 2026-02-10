@@ -274,17 +274,49 @@ func (e *Engine) EvaluateContextWithResult(ctx *analyzer.Context) EvaluationResu
 		}),
 	}
 
-	ok, _ := cedar.Authorize(ps, entities, req)
+	ok, diagnostics := cedar.Authorize(ps, entities, req)
+
+	var obligations []Obligation
+	var policyID string
+
+	if len(diagnostics.Reasons) > 0 {
+		// Take the first policy that contributed to the decision
+		reason := diagnostics.Reasons[0]
+		policyID = string(reason.PolicyID)
+
+		// Extract annotations as obligations
+		p := ps.Get(reason.PolicyID)
+		if p != nil {
+			annotations := p.Annotations()
+			if typeVal, ok := annotations["obligation"]; ok {
+				obs := Obligation{
+					Type: string(typeVal),
+				}
+				// Optional fields annotation for redaction
+				if fieldsVal, ok := annotations["fields"]; ok {
+					obs.Fields = strings.Split(string(fieldsVal), ",")
+					for i := range obs.Fields {
+						obs.Fields[i] = strings.TrimSpace(obs.Fields[i])
+					}
+				}
+				obligations = append(obligations, obs)
+			}
+		}
+	}
 
 	if ok {
 		return EvaluationResult{
-			Decision: ALLOW,
-			Reason:   "Policy allowed the request",
+			Decision:    ALLOW,
+			Reason:      "Policy allowed the request",
+			PolicyID:    policyID,
+			Obligations: obligations,
 		}
 	}
 
 	return EvaluationResult{
-		Decision: DENY,
-		Reason:   "Policy denied the request",
+		Decision:    DENY,
+		Reason:      "Policy denied the request",
+		PolicyID:    policyID,
+		Obligations: obligations,
 	}
 }
