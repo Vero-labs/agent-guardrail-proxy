@@ -11,9 +11,7 @@ services:
       - PROVIDER_TYPE=openai
       - PROVIDER_KEY=${GROQ_API_KEY}
       - POLICY_PATH=/app/policies.cedar
-      - INTENT_ANALYZER_URL=http://intent-analyzer:8001
-    depends_on:
-      - intent-analyzer
+      - INTENT_ANALYZER_URL=${INTENT_ANALYZER_URL:-http://localhost:8001}
     networks:
       - guardrail-net
     restart: unless-stopped
@@ -22,31 +20,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # Intent Analyzer (Python/BART)
-  intent-analyzer:
-    build:
-      context: ./services/intent-analyzer
-      dockerfile: Dockerfile
-    ports:
-      - "8001:8001"
-    environment:
-      - INTENT_ANALYZER_MODEL=bart
-    networks:
-      - guardrail-net
-    restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8001/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 10
-      start_period: 60s
-    deploy:
-      resources:
-        limits:
-          memory: 4G
-    volumes:
-      - hf-cache:/root/.cache/huggingface
 
   # Prometheus (Metrics)
   prometheus:

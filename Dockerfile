@@ -30,7 +30,7 @@ COPY backend/internal/cedar/policies.cedar ./policies.cedar
 ENV PROVIDER_URL=https://api.groq.com/openai
 ENV PROVIDER_TYPE=openai
 ENV POLICY_PATH=/app/policies.cedar
-ENV INTENT_ANALYZER_URL=http://intent-analyzer:8001
+ENV INTENT_ANALYZER_URL=http://localhost:8001
 
 EXPOSE 8080
 
