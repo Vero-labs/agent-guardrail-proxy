@@ -36,9 +36,6 @@ func main() {
 	}
 	logger.Printf("Provider: %s (%s)", p.Name(), cfg.ProviderUrl)
 
-	// Initialize legacy LLM Intent Analyzer (soft-deprecated)
-	intentAnalyzer := analyzer.NewAnalyzer(p)
-
 	// Initialize new BART-based Intent Analyzer (Semantic Classification)
 	var bartIntentAnalyzer *analyzer.IntentAnalyzer
 	if cfg.IntentAnalyzerURL != "" {
@@ -70,7 +67,6 @@ func main() {
 	handlerConfig := &proxy.HandlerConfig{
 		Config:            cfg,
 		Provider:          p,
-		Analyzer:          intentAnalyzer,
 		IntentAnalyzer:    bartIntentAnalyzer,
 		HeuristicAnalyzer: heuristicAnalyzer,
 		SignalAggregator:  signalAggregator,

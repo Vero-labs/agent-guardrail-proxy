@@ -21,7 +21,6 @@ import (
 type HandlerConfig struct {
 	Config            *config.Config
 	Provider          provider.Provider
-	Analyzer          *analyzer.Analyzer // Legacy LLM analyzer (deprecated)
 	IntentAnalyzer    *analyzer.IntentAnalyzer
 	HeuristicAnalyzer *analyzer.HeuristicAnalyzer // New: Fast-path regex analyzer
 	SignalAggregator  *analyzer.SignalAggregator

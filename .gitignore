@@ -1,73 +1,46 @@
-# Environment Variables
+# Environment
 .env
 .env.local
 .env.*.local
+
+# Compiled binaries
+bin/
+guardrail-cli
+guardrail-proxy
+guardrail-mcp
+mcp-server
+mcp-guardrail
+backend/guardrail-proxy
+backend/guardrail-mcp
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
 
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-env/
 venv/
 .venv/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-.pytest_cache/
-.coverage
-htmlcov/
 
-# Go
-bin/
-guardrail-mcp
-guardrail-proxy
-backend/guardrail-mcp
-backend/guardrail-proxy
-venv/
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
-.coverage
-htmlcov/
-.DS_Store
+# IDE
 .vscode/
 .idea/
-node_modules/
-dist/
-build/
+.DS_Store
+
+# Logs & Coverage
 *.log
-*.txt
-!requirements.txt
-!SECURITY_MODEL.md
-!README.md
-!*.cedar
-!*.go
-!*.py
-!*.sh
-!*.yml
-!*.yaml
-!*.json
-!*.md
-!Dockerfile
-!docker-compose.yml
-!go.mod
-!go.sum
-!Makefile
-!LICENSE
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+node_modules/
