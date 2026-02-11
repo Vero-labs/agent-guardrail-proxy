@@ -86,12 +86,8 @@ func (a *IntentAnalyzer) callSidecar(req intentRequest) (*IntentSignal, error) {
 		a.cacheLock.RUnlock()
 	}
 
-	reqBody, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	resp, err := a.client.Post(a.endpoint+"/intent", "application/json", bytes.NewBuffer(reqBody))
+	reqBytes, _ := json.Marshal(req)
+	resp, err := a.client.Post(a.endpoint+"/intent", "application/json", bytes.NewBuffer(reqBytes))
 	if err != nil {
 		return nil, fmt.Errorf("intent sidecar request failed: %w", err)
 	}
@@ -144,6 +140,7 @@ func isValidIntent(intent string) bool {
 		IntentFileRead, IntentFileWrite,
 		IntentSystem,
 		IntentConvGreeting, IntentConvOther,
+		"safety.toxicity", // Added to support sidecar's toxicity label
 		IntentUnknown:
 		return true
 	default:

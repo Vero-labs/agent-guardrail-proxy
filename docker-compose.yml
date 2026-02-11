@@ -11,7 +11,7 @@ services:
       - PROVIDER_TYPE=openai
       - PROVIDER_KEY=${GROQ_API_KEY}
       - POLICY_PATH=/app/policies.cedar
-      - INTENT_ANALYZER_URL=${INTENT_ANALYZER_URL:-http://localhost:8001}
+      - INTENT_ANALYZER_URL=${INTENT_ANALYZER_URL:-http://localhost:8002}
     networks:
       - guardrail-net
     restart: unless-stopped
