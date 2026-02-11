@@ -41,11 +41,9 @@ func main() {
 
 	// Initialize new BART-based Intent Analyzer (Semantic Classification)
 	var bartIntentAnalyzer *analyzer.IntentAnalyzer
-	intentAnalyzerURL := os.Getenv("INTENT_ANALYZER_URL")
-	semanticCacheURL := os.Getenv("SEMANTIC_CACHE_URL")
-	if intentAnalyzerURL != "" {
-		bartIntentAnalyzer = analyzer.NewIntentAnalyzer(intentAnalyzerURL, semanticCacheURL)
-		logger.Printf("Intent Analyzer (BART) initialized at: %s (Cache: %s)", intentAnalyzerURL, semanticCacheURL)
+	if cfg.IntentAnalyzerURL != "" {
+		bartIntentAnalyzer = analyzer.NewIntentAnalyzer(cfg.IntentAnalyzerURL, cfg.SemanticCacheURL)
+		logger.Printf("Intent Analyzer (BART) initialized at: %s (Cache: %s)", cfg.IntentAnalyzerURL, cfg.SemanticCacheURL)
 	}
 
 	// Initialize Deterministic Signal Aggregator

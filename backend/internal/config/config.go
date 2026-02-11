@@ -15,6 +15,10 @@ type Config struct {
 	Logging   LoggingConfig
 	Metrics   MetricsConfig
 
+	// Sidecar Analyzers
+	IntentAnalyzerURL string
+	SemanticCacheURL  string
+
 	// Legacy fields for backward compatibility
 	ProviderUrl string
 	ProviderKey string
@@ -107,6 +111,8 @@ func Load() *Config {
 			Port:     getEnvInt("METRICS_PORT", 9090),
 			Endpoint: getEnv("METRICS_ENDPOINT", "/metrics"),
 		},
+		IntentAnalyzerURL: getEnv("INTENT_ANALYZER_URL", "http://localhost:8001"),
+		SemanticCacheURL:  getEnv("SEMANTIC_CACHE_URL", ""),
 	}
 
 	// Load legacy provider config (backward compatibility)
