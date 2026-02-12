@@ -70,14 +70,14 @@ when {
 
 // 3.1 Critical Operations - Block with medium+ confidence
 // Intents: code.exploit, sys.control, tool.dangerous, file.write
-forbid(
+ forbid(
     principal,
     action == Action::"chat",
     resource
 )
 when {
     (context.intent == "code.exploit" || context.user_intent == "code.exploit") &&
-    context.confidence > 35
+    context.confidence > 20
 };
 
 forbid(
@@ -181,7 +181,7 @@ forbid(
 )
 when {
     context.user_intent == "info.query.pii" &&
-    context.pii.containsAny(["ssn", "credit_card"])
+    (context.pii.containsAny(["ssn", "credit_card"]) || context.confidence > 30)
 };
 
 // =============================================================================
