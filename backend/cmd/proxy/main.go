@@ -116,6 +116,7 @@ func main() {
 		SignalAggregator:  signalAggregator,
 		CedarEngine:       cedarEngine,
 		Logger:            logger,
+		Policy:            &gPolicy,
 	}
 
 	// Setup routes

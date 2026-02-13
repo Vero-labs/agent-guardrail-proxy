@@ -91,19 +91,19 @@ topics:
 
 # ── Roles ────────────────────────────────────────────────────
 # Restrict agent behavior based on role (sent via X-Guardrail-Role header).
+# Go-level enforcement runs BEFORE Cedar. Cedar has NO role awareness.
 roles:
   recruiter:
-    description: "HR recruitment assistant – can only query and summarize"
-    allow_intents:
-      - info.query
-      - info.summarize
-      - conv.greeting
-      - conv.other
+    description: "HR recruitment assistant – scoped to recruitment domain only"
+    allow_actions:
+      - query
+      - summarize
+      - greeting
+      - other
     allowed_topics:
       - recruitment
-      - candidates
-      - jobs
-      - hr
+    domain_confidence_threshold: 0.6
+    action_confidence_threshold: 0.65
     block_intents:
       - info.query.pii
       - file.read
@@ -112,13 +112,19 @@ roles:
       - sys.control
 
   customer_support:
-    description: "Customer support agent – can query, summarize, use safe tools"
-    allow_intents:
-      - info.query
-      - info.summarize
-      - conv.greeting
-      - conv.other
-      - tool.safe
+    description: "Customer support agent – scoped to support domain"
+    allow_actions:
+      - query
+      - summarize
+      - greeting
+      - other
+      - tool
+    allowed_topics:
+      - support
+      - billing
+      - account
+    domain_confidence_threshold: 0.6
+    action_confidence_threshold: 0.65
     block_intents:
       - code.exploit
       - sys.control

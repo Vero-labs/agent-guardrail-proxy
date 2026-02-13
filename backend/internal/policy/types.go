@@ -56,11 +56,13 @@ type IntentOverride struct {
 
 // RoleConfig defines what a specific role can and cannot do
 type RoleConfig struct {
-	Description   string   `yaml:"description"`
-	AllowIntents  []string `yaml:"allow_intents"`
-	BlockIntents  []string `yaml:"block_intents"`
-	AllowedTopics []string `yaml:"allowed_topics"` // NEW: Only allow specific topics
-	BlockTopics   []string `yaml:"block_topics"`   // NEW: Explicitly block topics
+	Description               string   `yaml:"description"`
+	AllowActions              []string `yaml:"allow_actions"`               // first-class action verbs: query, summarize, greeting, etc.
+	AllowedTopics             []string `yaml:"allowed_topics"`              // domain nouns: recruitment, hr, etc.
+	BlockIntents              []string `yaml:"block_intents"`               // explicitly blocked intents
+	BlockTopics               []string `yaml:"block_topics"`                // explicitly blocked topics
+	DomainConfidenceThreshold float64  `yaml:"domain_confidence_threshold"` // 0.0-1.0, default 0.6
+	ActionConfidenceThreshold float64  `yaml:"action_confidence_threshold"` // 0.0-1.0, default 0.65
 }
 
 // AgentLimitsConfig controls agentic workflow budgets

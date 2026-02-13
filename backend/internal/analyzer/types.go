@@ -44,6 +44,15 @@ type Context struct {
 	Confidence          float64 `json:"confidence"`
 	ResourceSensitivity string  `json:"resource_sensitivity"` // "public" or "sensitive"
 
+	// First-class action/domain (not parsed from intent strings)
+	Action           string  `json:"action"`            // e.g. "query", "summarize", "generate"
+	Domain           string  `json:"domain"`            // e.g. "recruitment", "politics"
+	ActionConfidence float64 `json:"action_confidence"` // confidence in action classification
+	DomainConfidence float64 `json:"domain_confidence"` // confidence in domain classification
+
+	// Analyzer health
+	AnalyzerFailed bool `json:"analyzer_failed"` // true = sidecar crash, false = model said unknown
+
 	// Deterministic signals from local detectors
 	Signals Signals `json:"signals"`
 
@@ -105,6 +114,16 @@ func (c *Context) AttachIntent(sig *IntentSignal, role string) {
 		c.Intent = sig.Intent
 		c.Confidence = sig.Confidence
 		c.RiskScore = currentRisk
+	}
+
+	// Propagate first-class action/domain from signal
+	if sig.Action != "" {
+		c.Action = sig.Action
+		c.ActionConfidence = sig.Confidence // action confidence = intent confidence
+	}
+	if sig.Domain != "" {
+		c.Domain = sig.Domain
+		c.DomainConfidence = sig.DomainConfidence
 	}
 }
 

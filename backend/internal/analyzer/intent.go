@@ -27,8 +27,37 @@ const (
 
 // IntentSignal represents the semantic analysis result
 type IntentSignal struct {
-	Intent     string  `json:"intent"`     // one of the hierarchical intents above
-	Confidence float64 `json:"confidence"` // 0.0 to 1.0
+	Intent           string  `json:"intent"`            // one of the hierarchical intents above
+	Confidence       float64 `json:"confidence"`        // 0.0 to 1.0
+	Action           string  `json:"action"`            // first-class verb: "query", "summarize", "generate", etc.
+	Domain           string  `json:"domain"`            // first-class noun: "recruitment", "politics", etc.
+	DomainConfidence float64 `json:"domain_confidence"` // confidence in domain classification
+	ActionConfidence float64 `json:"action_confidence"` // confidence in action classification
+	RiskScore        float64 `json:"risk_score"`        // sidecar-computed risk score
+	IsAmbiguous      bool    `json:"is_ambiguous"`      // sidecar flags ambiguous classifications
+	// Sidecar evaluation result (propagated from Python evaluator)
+	SidecarDecision string `json:"decision"` // "allow" | "block" — the sidecar's own verdict
+	SidecarReason   string `json:"reason"`   // why the sidecar blocked/allowed
+}
+
+// intentForAction maps sidecar action verbs to Cedar-compatible intent taxonomy.
+func intentForAction(action string) string {
+	switch action {
+	case "query":
+		return IntentInfoQuery
+	case "summarize":
+		return IntentInfoSummarize
+	case "generate":
+		return IntentCodeGenerate
+	case "control":
+		return IntentSystem
+	case "greet":
+		return IntentConvGreeting
+	case "modify":
+		return IntentFileWrite
+	default:
+		return IntentUnknown
+	}
 }
 
 // RiskFromIntent returns the confidence as the risk signal.

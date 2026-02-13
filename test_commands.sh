@@ -16,14 +16,11 @@ curl -s "$PROXY_URL/health" | jq .
 echo -e "\n[2] Testing Status Check..."
 curl -s "$PROXY_URL/api/status" | jq .
 
-# 3. Basic Chat (Permit)
 
 curl -s -X POST "$CHAT_ENDPOINT" \
   -H "Content-Type: application/json" \
-  -d '{
-    "model": "llama-3.1-8b-instant",
-    "messages": [{"role": "user", "content": "Who is the president of US?"}]
-  }' | jq .
+  -H "X-Guardrail-Role: recruiter" \
+  -d '{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"who is richest actor in hollywood?"}]}'
 
 
 

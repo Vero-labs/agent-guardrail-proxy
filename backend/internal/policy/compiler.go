@@ -62,11 +62,9 @@ when {
 		compileSourceTrust(&b, p.SourceTrust)
 	}
 
-	// ── Section 8: Roles ──
-	if len(p.Roles) > 0 {
-		compileSectionHeader(&b, "8", "ROLE-BASED GUARDRAILS")
-		compileRoles(&b, p.Roles)
-	}
+	// NOTE: Role-based guardrails are now enforced in Go (handler.go)
+	// BEFORE Cedar evaluation. Cedar has NO role awareness.
+	// This is by design — clean separation of scope (Go) vs content risk (Cedar).
 
 	return b.String(), nil
 }
@@ -277,9 +275,7 @@ func compileFailSafe(b *strings.Builder, s *SafetyConfig) {
 when {
     context.risk_score > %d &&
     context.intent != "conv.greeting" &&
-    context.intent != "conv.other" &&
-    context.intent != "info.query" &&
-    context.intent != "info.summarize"
+    context.intent != "conv.other"
 };
 
 `, riskInt))
@@ -369,97 +365,5 @@ when {
 };
 
 `, source, trustedCheck, strings.Join(intentChecks, " || ")))
-	}
-}
-
-// ── Roles ───────────────────────────────────────────────────────────────────
-
-func compileRoles(b *strings.Builder, roles map[string]RoleConfig) {
-	for name, role := range roles {
-		// 1. Intent Allowlist: block any intent not in allow_intents
-		if len(role.AllowIntents) > 0 {
-			allowChecks := make([]string, len(role.AllowIntents))
-			for i, intent := range role.AllowIntents {
-				allowChecks[i] = fmt.Sprintf(`context.intent == "%s"`, intent)
-			}
-
-			b.WriteString(fmt.Sprintf(`// Role: %s — %s
-// Block any intent not in allowlist
-forbid(
-    principal,
-    action == Action::"chat",
-    resource
-)
-when {
-    context.role == "%s" &&
-    !(%s)
-};
-
-`, name, role.Description, name, strings.Join(allowChecks, " || \n      ")))
-		}
-
-		// 2. Explicit Intent Blocks
-		if len(role.BlockIntents) > 0 {
-			blockChecks := make([]string, len(role.BlockIntents))
-			for i, intent := range role.BlockIntents {
-				blockChecks[i] = fmt.Sprintf(`context.intent == "%s"`, intent)
-			}
-
-			b.WriteString(fmt.Sprintf(`// Role: %s — explicit blocks
-forbid(
-    principal,
-    action == Action::"chat",
-    resource
-)
-when {
-    context.role == "%s" &&
-    (%s)
-};
-
-`, name, name, strings.Join(blockChecks, " || ")))
-		}
-
-		// 3. Topic Allowlist: block any topic not in allowed_topics
-		if len(role.AllowedTopics) > 0 {
-			topicChecks := make([]string, len(role.AllowedTopics))
-			for i, topic := range role.AllowedTopics {
-				topicChecks[i] = fmt.Sprintf(`context.topic == "%s"`, topic)
-			}
-
-			b.WriteString(fmt.Sprintf(`// Role: %s — topic allowlist
-forbid(
-    principal,
-    action == Action::"chat",
-    resource
-)
-when {
-    context.role == "%s" &&
-    context.topic != "" &&
-    !(%s)
-};
-
-`, name, name, strings.Join(topicChecks, " || ")))
-		}
-
-		// 4. Explicit Topic Blocks
-		if len(role.BlockTopics) > 0 {
-			blockTopics := make([]string, len(role.BlockTopics))
-			for i, topic := range role.BlockTopics {
-				blockTopics[i] = fmt.Sprintf(`context.topic == "%s"`, topic)
-			}
-
-			b.WriteString(fmt.Sprintf(`// Role: %s — explicit topic blocks
-forbid(
-    principal,
-    action == Action::"chat",
-    resource
-)
-when {
-    context.role == "%s" &&
-    (%s)
-};
-
-`, name, name, strings.Join(blockTopics, " || ")))
-		}
 	}
 }

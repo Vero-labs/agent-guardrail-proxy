@@ -8,6 +8,32 @@ import (
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/policy"
 )
 
+// intentToAction maps intent prefixes to first-class action verbs.
+// This is the canonical mapping — never parse intent strings elsewhere.
+var intentToAction = map[string]string{
+	IntentInfoQuery:     "query",
+	IntentInfoQueryPII:  "query",
+	IntentInfoSummarize: "summarize",
+	IntentCodeGenerate:  "generate",
+	IntentCodeExploit:   "exploit",
+	IntentToolSafe:      "tool",
+	IntentToolRisk:      "tool",
+	IntentFileRead:      "read",
+	IntentFileWrite:     "write",
+	IntentSystem:        "control",
+	IntentConvGreeting:  "greeting",
+	IntentConvOther:     "other",
+	IntentUnknown:       "",
+}
+
+// ActionForIntent returns the first-class action verb for an intent.
+func ActionForIntent(intent string) string {
+	if a, ok := intentToAction[intent]; ok {
+		return a
+	}
+	return ""
+}
+
 // HeuristicAnalyzer provides fast, deterministic intent detection using regex.
 // This is used as the first tier in a multi-tier classification pipeline.
 type HeuristicAnalyzer struct {
@@ -58,7 +84,7 @@ func (h *HeuristicAnalyzer) DetectTopic(text string) string {
 func (h *HeuristicAnalyzer) Analyze(text string) *IntentSignal {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
-		return &IntentSignal{Intent: IntentUnknown, Confidence: 1.0}
+		return &IntentSignal{Intent: IntentUnknown, Confidence: 1.0, Action: ""}
 	}
 
 	// 1. Check for Greetings (High Confidence Fast-Path)
@@ -66,6 +92,7 @@ func (h *HeuristicAnalyzer) Analyze(text string) *IntentSignal {
 		return &IntentSignal{
 			Intent:     IntentConvGreeting,
 			Confidence: 0.95,
+			Action:     "greeting",
 		}
 	}
 
@@ -74,6 +101,7 @@ func (h *HeuristicAnalyzer) Analyze(text string) *IntentSignal {
 		return &IntentSignal{
 			Intent:     IntentCodeExploit,
 			Confidence: 0.90,
+			Action:     "exploit",
 		}
 	}
 
@@ -82,6 +110,34 @@ func (h *HeuristicAnalyzer) Analyze(text string) *IntentSignal {
 		return &IntentSignal{
 			Intent:     IntentSystem,
 			Confidence: 0.95,
+			Action:     "control",
+		}
+	}
+
+	return nil
+}
+
+// AnalyzeWithDomain combines intent detection with topic detection to
+// produce a fully populated IntentSignal with Action and Domain.
+func (h *HeuristicAnalyzer) AnalyzeWithDomain(text string) *IntentSignal {
+	sig := h.Analyze(text)
+
+	// Detect domain regardless of intent match
+	domain := h.DetectTopic(text)
+
+	if sig != nil {
+		sig.Domain = domain
+		if domain != "" {
+			sig.DomainConfidence = 0.90 // heuristic keyword match = high confidence
+		}
+		return sig
+	}
+
+	// No intent match, but if we have a domain, return minimal signal
+	if domain != "" {
+		return &IntentSignal{
+			Domain:           domain,
+			DomainConfidence: 0.90,
 		}
 	}
 

@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/cedar"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/config"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/metrics"
+	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/policy"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/provider"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/pkg/models"
 	"github.com/google/uuid"
@@ -22,10 +24,11 @@ type HandlerConfig struct {
 	Config            *config.Config
 	Provider          provider.Provider
 	IntentAnalyzer    *analyzer.IntentAnalyzer
-	HeuristicAnalyzer *analyzer.HeuristicAnalyzer // New: Fast-path regex analyzer
+	HeuristicAnalyzer *analyzer.HeuristicAnalyzer
 	SignalAggregator  *analyzer.SignalAggregator
 	CedarEngine       *cedar.Engine
 	Logger            *log.Logger
+	Policy            *policy.GuardrailPolicy // Loaded guardrail.yaml for Go-level enforcement
 }
 
 // GuardrailErrorResponse is returned when a request is blocked
@@ -116,22 +119,35 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 
 			// 2. Semantic Intent Classification (BART sidecar - soft-fail)
 			if hc.IntentAnalyzer != nil {
-				// A. Fast-Path: Heuristic Check
-				var heuristicSignal *analyzer.IntentSignal
+				// A. Fast-Path: Heuristic Check (domain + intent)
+				hasConfidentIntent := false
 				if hc.HeuristicAnalyzer != nil && ctx.Signals.UserText != "" {
-					heuristicSignal = hc.HeuristicAnalyzer.Analyze(ctx.Signals.UserText)
+					heuristicSignal := hc.HeuristicAnalyzer.AnalyzeWithDomain(ctx.Signals.UserText)
 					if heuristicSignal != nil {
-						ctx.AttachIntent(heuristicSignal, "user")
-						hc.logInfo("Heuristic Intent: %s (Confidence=%.2f) - BYPASSING Sidecar",
-							heuristicSignal.Intent, heuristicSignal.Confidence)
-						// METRIC: Record intent
-						metrics.RecordIntent(heuristicSignal.Intent)
+						// Always attach domain info from heuristic
+						if heuristicSignal.Domain != "" {
+							ctx.Domain = heuristicSignal.Domain
+							ctx.DomainConfidence = heuristicSignal.DomainConfidence
+							hc.logInfo("Heuristic domain: %s (Confidence=%.2f)", heuristicSignal.Domain, heuristicSignal.DomainConfidence)
+						}
+						// Only bypass sidecar if we have a confident INTENT match
+						if heuristicSignal.Intent != "" {
+							ctx.AttachIntent(heuristicSignal, "user")
+							hc.logInfo("Heuristic Intent: %s Action: %s (Confidence=%.2f) - BYPASSING Sidecar",
+								heuristicSignal.Intent, heuristicSignal.Action, heuristicSignal.Confidence)
+							metrics.RecordIntent(heuristicSignal.Intent)
+							hasConfidentIntent = true
+						}
 					}
 				}
 
-				// B. Deep-Path: BART sidecar (only if heuristic didn't confidently hit)
-				if heuristicSignal == nil {
+				// B. Deep-Path: BART sidecar (only if heuristic didn't confidently classify intent)
+				if !hasConfidentIntent {
 					intentFailed := false
+
+					// Track sidecar block decisions
+					var sidecarBlocked bool
+					var sidecarBlockReason string
 
 					// Contextual Window Analysis
 					if len(parsedReq.Messages) > 0 {
@@ -140,11 +156,20 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 							hc.logError("[WARN] Contextual intent analysis failed: %v", err)
 							intentFailed = true
 						} else {
+							// Populate Action from canonical map if sidecar didn't provide it
+							if intentSignal.Action == "" {
+								intentSignal.Action = analyzer.ActionForIntent(intentSignal.Intent)
+							}
 							ctx.AttachIntent(intentSignal, "aggregate")
-							hc.logInfo("Contextual Intent: %s (Confidence=%.2f, DerivedRisk=%.2f)",
-								intentSignal.Intent, intentSignal.Confidence, ctx.RiskScore)
+							hc.logInfo("Contextual Intent: %s Action: %s Domain: %s (Confidence=%.2f, DerivedRisk=%.2f)",
+								intentSignal.Intent, intentSignal.Action, intentSignal.Domain, intentSignal.Confidence, ctx.RiskScore)
 							// METRIC: Record intent
 							metrics.RecordIntent(intentSignal.Intent)
+							// Check sidecar's own evaluation decision
+							if intentSignal.SidecarDecision == "block" {
+								sidecarBlocked = true
+								sidecarBlockReason = intentSignal.SidecarReason
+							}
 						}
 					}
 
@@ -155,36 +180,77 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 							hc.logError("[WARN] User content intent analysis failed: %v", err)
 							intentFailed = true
 						} else {
+							// Populate Action from canonical map if sidecar didn't provide it
+							if userIntentSignal.Action == "" {
+								userIntentSignal.Action = analyzer.ActionForIntent(userIntentSignal.Intent)
+							}
 							ctx.AttachIntent(userIntentSignal, "user")
-							hc.logInfo("User-Specific Intent: %s (Confidence=%.2f)",
-								userIntentSignal.Intent, userIntentSignal.Confidence)
+							hc.logInfo("User-Specific Intent: %s Action: %s Domain: %s (Confidence=%.2f, SidecarDecision: %s)",
+								userIntentSignal.Intent, userIntentSignal.Action, userIntentSignal.Domain,
+								userIntentSignal.Confidence, userIntentSignal.SidecarDecision)
+							// Check sidecar's own evaluation decision (user-specific takes precedence)
+							if userIntentSignal.SidecarDecision == "block" {
+								sidecarBlocked = true
+								sidecarBlockReason = userIntentSignal.SidecarReason
+							}
 						}
 					}
 
-					// FAIL-CLOSED: If intent analysis completely failed, mark as unknown
-					// so Cedar can evaluate it rather than silently allowing
+					// ?????? SIDECAR DECISION ENFORCEMENT ??????
+					// If the sidecar's own evaluator blocked the request, enforce it
+					if sidecarBlocked {
+						hc.logDecision("DENY", sidecarBlockReason, "sidecar-evaluation")
+						w.Header().Set("X-Guardrail-Blocked", "true")
+						sendErrorResponse(w, http.StatusForbidden, "sidecar_blocked", sidecarBlockReason, requestID)
+						return
+					}
+
+					// FAIL-CLOSED: If intent analysis completely failed, mark context
 					if intentFailed && ctx.Intent == "" {
 						ctx.Intent = "unknown"
 						ctx.UserIntent = "unknown"
 						ctx.Confidence = 0.5
 						ctx.RiskScore = 0.5
+						ctx.AnalyzerFailed = true // Distinct from model-said-unknown
 						hc.logInfo("Intent analysis unavailable — defaulting to unknown (fail-closed)")
+					}
+
+					// Detect domain from heuristic if sidecar didn't provide one
+					if ctx.Domain == "" && hc.HeuristicAnalyzer != nil && ctx.Signals.UserText != "" {
+						detectedDomain := hc.HeuristicAnalyzer.DetectTopic(ctx.Signals.UserText)
+						if detectedDomain != "" {
+							ctx.Domain = detectedDomain
+							ctx.DomainConfidence = 0.90 // keyword match = high confidence
+							hc.logInfo("Heuristic domain detection: %s (Confidence=0.90)", detectedDomain)
+						}
 					}
 				}
 			}
 
-			// 3. Evaluate policy with Cedar (PRE-STREAM ENFORCEMENT)
 			// ============================================================
-			// CRITICAL: This evaluation MUST complete BEFORE any streaming
-			// begins. Cedar runs ONCE, synchronously, before the first SSE
-			// token is forwarded. This closes the #1 real-world leakage vector.
+			// STEP 4: ROLE-DOMAIN ENFORCEMENT (Go-level, pre-Cedar)
+			// ============================================================
+			if ctx.Role != "" && hc.Policy != nil {
+				if decision, reason := hc.enforceRolePolicy(ctx); decision == "DENY" {
+					hc.logDecision("DENY", reason, "role-enforcement")
+					w.Header().Set("X-Guardrail-Blocked", "true")
+					sendErrorResponse(w, http.StatusForbidden, "role_policy_blocked", reason, requestID)
+					return
+				}
+			}
+
+			// ============================================================
+			// STEP 5-6: CEDAR EVALUATION (content risk only)
+			// ============================================================
+			// Cedar evaluates: intent thresholds, PII obligations, capabilities,
+			// source trust. Cedar has NO role awareness.
 			// ============================================================
 			if hc.CedarEngine != nil {
 				result := hc.CedarEngine.EvaluateContextWithResult(ctx)
 				decision := result.Decision
 				reason := result.Reason
 
-				hc.logInfo("Cedar Decision: %s (Reason: %s)", decision, reason)
+				hc.logDecision(string(decision), reason, "cedar")
 
 				// METRIC: Record decision
 				metrics.RecordDecision(string(decision))
@@ -196,7 +262,7 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 				w.Header().Set("X-Guardrail-Policy-Version", hc.CedarEngine.PolicyVersion())
 
 				if decision == cedar.DENY {
-					hc.logInfo("Request %s BLOCKED (pre-stream): %s", requestID, reason)
+					hc.logDecision("DENY", reason, "cedar")
 					w.Header().Set("X-Guardrail-Blocked", "true")
 					sendErrorResponse(w, http.StatusForbidden, "guardrail_blocked", reason, requestID)
 					return
@@ -346,4 +412,136 @@ func (hc *HandlerConfig) logError(format string, args ...interface{}) {
 	if hc.Logger != nil {
 		hc.Logger.Printf("[ERROR] "+format, args...)
 	}
+}
+
+// logDecision outputs structured enforcement decisions for auditability.
+// Format: Decision: ALLOW|DENY | Reason: <why> | Step: <enforcement-step>
+func (hc *HandlerConfig) logDecision(decision, reason, step string) {
+	if hc.Logger != nil {
+		hc.Logger.Printf("[DECISION] Decision: %s | Reason: %s | Step: %s", decision, reason, step)
+	}
+}
+
+// enforceRolePolicy applies Go-level role-domain and role-action enforcement
+// BEFORE Cedar evaluation. Returns ("DENY", reason) or ("ALLOW", "").
+//
+// Enforcement order within this function:
+//  1. Analyzer health check (fail-closed under constrained roles)
+//  2. Domain enforcement (empty domain = deny under constrained roles)
+//  3. Domain confidence check
+//  4. Action enforcement (empty action = deny under constrained roles)
+//  5. Action confidence check
+//  6. Unknown intent check
+func (hc *HandlerConfig) enforceRolePolicy(ctx *analyzer.Context) (string, string) {
+	if hc.Policy == nil || ctx.Role == "" {
+		return "ALLOW", ""
+	}
+
+	roleCfg, exists := hc.Policy.Roles[ctx.Role]
+	if !exists {
+		// Unknown role = no constraints (pass through to Cedar)
+		return "ALLOW", ""
+	}
+
+	isConstrained := len(roleCfg.AllowedTopics) > 0 || len(roleCfg.AllowActions) > 0
+
+	// Default thresholds if not set in YAML
+	domainThreshold := roleCfg.DomainConfidenceThreshold
+	if domainThreshold == 0 {
+		domainThreshold = 0.6
+	}
+	actionThreshold := roleCfg.ActionConfidenceThreshold
+	if actionThreshold == 0 {
+		actionThreshold = 0.65
+	}
+
+	// ── 1. Analyzer health check ──
+	if ctx.AnalyzerFailed && isConstrained {
+		return "DENY", "Analyzer unavailable — fail-closed for constrained role '" + ctx.Role + "'"
+	}
+
+	// ── 2. Domain enforcement ──
+	if len(roleCfg.AllowedTopics) > 0 {
+		domain := ctx.Domain
+		if domain == "" {
+			// Also check legacy topic signal as fallback
+			domain = ctx.Signals.Topic
+		}
+
+		if domain == "" {
+			// Empty domain under constrained role = DENY (no silent bypass)
+			return "DENY", "Unknown domain — denied for constrained role '" + ctx.Role + "'"
+		}
+
+		if !contains(roleCfg.AllowedTopics, domain) {
+			return "DENY", "Domain '" + domain + "' not allowed for role '" + ctx.Role + "'"
+		}
+
+		// ── 3. Domain confidence check ──
+		if ctx.DomainConfidence > 0 && ctx.DomainConfidence < domainThreshold {
+			return "DENY", "Domain confidence " + formatFloat(ctx.DomainConfidence) + " below threshold " + formatFloat(domainThreshold) + " for role '" + ctx.Role + "'"
+		}
+	}
+
+	// ── 4. Explicit topic blocks ──
+	if len(roleCfg.BlockTopics) > 0 {
+		domain := ctx.Domain
+		if domain == "" {
+			domain = ctx.Signals.Topic
+		}
+		if domain != "" && contains(roleCfg.BlockTopics, domain) {
+			return "DENY", "Domain '" + domain + "' explicitly blocked for role '" + ctx.Role + "'"
+		}
+	}
+
+	// ── 5. Action enforcement ──
+	if len(roleCfg.AllowActions) > 0 {
+		action := ctx.Action
+		if action == "" {
+			// Derive from intent as last resort using canonical map
+			action = analyzer.ActionForIntent(ctx.Intent)
+		}
+
+		if action == "" && isConstrained {
+			return "DENY", "Unknown action — denied for constrained role '" + ctx.Role + "'"
+		}
+
+		if action != "" && !contains(roleCfg.AllowActions, action) {
+			return "DENY", "Action '" + action + "' not allowed for role '" + ctx.Role + "'"
+		}
+
+		// ── 6. Action confidence check ──
+		if ctx.ActionConfidence > 0 && ctx.ActionConfidence < actionThreshold {
+			return "DENY", "Action confidence " + formatFloat(ctx.ActionConfidence) + " below threshold " + formatFloat(actionThreshold) + " for role '" + ctx.Role + "'"
+		}
+	}
+
+	// ── 7. Explicit intent blocks ──
+	if len(roleCfg.BlockIntents) > 0 && ctx.Intent != "" {
+		if contains(roleCfg.BlockIntents, ctx.Intent) {
+			return "DENY", "Intent '" + ctx.Intent + "' explicitly blocked for role '" + ctx.Role + "'"
+		}
+	}
+
+	// ── 8. Unknown intent under constrained role ──
+	if ctx.Intent == "unknown" && isConstrained {
+		return "DENY", "Unknown intent denied for constrained role '" + ctx.Role + "'"
+	}
+
+	return "ALLOW", ""
+}
+
+// contains checks if a string slice contains a specific value
+func contains(slice []string, val string) bool {
+	for _, s := range slice {
+		if s == val {
+			return true
+		}
+	}
+	return false
+}
+
+// formatFloat formats a float64 with 2 decimal places for log output
+func formatFloat(f float64) string {
+	return fmt.Sprintf("%.2f", f)
 }

@@ -58,6 +58,22 @@ type intentRequest struct {
 	Messages []models.Message `json:"messages,omitempty"`
 }
 
+// sidecarClassification matches the nested "classification" object in sidecar response
+type sidecarClassification struct {
+	Action           string   `json:"action"`
+	ActionConfidence float64  `json:"action_confidence"`
+	Domain           string   `json:"domain"`
+	DomainConfidence float64  `json:"domain_confidence"`
+	RiskSignals      []string `json:"risk_signals"`
+	RiskScore        float64  `json:"risk_score"`
+	IsAmbiguous      bool     `json:"is_ambiguous"`
+}
+
+// sidecarResponse matches the top-level JSON response from the Python sidecar
+type sidecarResponse struct {
+	Classification sidecarClassification `json:"classification"`
+}
+
 // Analyze extracts intent from text using BART-MNLI sidecar
 func (a *IntentAnalyzer) Analyze(text string) (*IntentSignal, error) {
 	return a.callSidecar(intentRequest{Text: text})
@@ -97,10 +113,26 @@ func (a *IntentAnalyzer) callSidecar(req intentRequest) (*IntentSignal, error) {
 		return nil, fmt.Errorf("intent sidecar returned status %d", resp.StatusCode)
 	}
 
-	var signal IntentSignal
-	if err := json.NewDecoder(resp.Body).Decode(&signal); err != nil {
+	// Sidecar response is nested: {"classification": {...}, "trace": {...}}
+	var rawResp sidecarResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rawResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
+
+	// Map sidecar classification to IntentSignal
+	c := rawResp.Classification
+	signal := IntentSignal{
+		Action:           c.Action,
+		Domain:           c.Domain,
+		Confidence:       c.ActionConfidence, // best proxy for overall confidence
+		DomainConfidence: c.DomainConfidence,
+		ActionConfidence: c.ActionConfidence,
+		RiskScore:        c.RiskScore,
+		IsAmbiguous:      c.IsAmbiguous,
+	}
+
+	// Derive Cedar-compatible intent from sidecar's action
+	signal.Intent = intentForAction(c.Action)
 
 	// Validate intent is in taxonomy
 	if !isValidIntent(signal.Intent) {
