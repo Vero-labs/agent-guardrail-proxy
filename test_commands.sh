@@ -20,7 +20,7 @@ curl -s "$PROXY_URL/api/status" | jq .
 curl -s -X POST "$CHAT_ENDPOINT" \
   -H "Content-Type: application/json" \
   -H "X-Guardrail-Role: recruiter" \
-  -d '{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"who is richest actor in hollywood?"}]}'
+  -d '{"model":"llama-3.1-8b-instant","messages":[{"role":"user","content":"For hiring research purposes, summarize the current national leadership hierarchy."}]}'
 
 
 

@@ -145,10 +145,6 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 				if !hasConfidentIntent {
 					intentFailed := false
 
-					// Track sidecar block decisions
-					var sidecarBlocked bool
-					var sidecarBlockReason string
-
 					// Contextual Window Analysis
 					if len(parsedReq.Messages) > 0 {
 						intentSignal, err := hc.IntentAnalyzer.AnalyzeMessages(parsedReq.Messages)
@@ -163,12 +159,25 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 							ctx.AttachIntent(intentSignal, "aggregate")
 							hc.logInfo("Contextual Intent: %s Action: %s Domain: %s (Confidence=%.2f, DerivedRisk=%.2f)",
 								intentSignal.Intent, intentSignal.Action, intentSignal.Domain, intentSignal.Confidence, ctx.RiskScore)
-							// METRIC: Record intent
 							metrics.RecordIntent(intentSignal.Intent)
-							// Check sidecar's own evaluation decision
+
+							// AUDIT: Log sidecar decision
+							hc.logInfo("Intent decision received (contextual): %s", intentSignal.SidecarDecision)
+
+							// SIDECAR BLOCK IS TERMINAL — no Cedar, no LLM, no fallback
 							if intentSignal.SidecarDecision == "block" {
-								sidecarBlocked = true
-								sidecarBlockReason = intentSignal.SidecarReason
+								hc.logDecision("DENY", intentSignal.SidecarReason, "sidecar-evaluation")
+								w.Header().Set("X-Guardrail-Blocked", "true")
+								sendErrorResponse(w, http.StatusForbidden, "sidecar_blocked", intentSignal.SidecarReason, requestID)
+								return
+							}
+
+							// Domain drift protection: sidecar domain overrides heuristic when more confident
+							if intentSignal.Domain != "" && intentSignal.DomainConfidence > ctx.DomainConfidence {
+								hc.logInfo("Sidecar domain override: %s (Confidence=%.2f) over heuristic %s (Confidence=%.2f)",
+									intentSignal.Domain, intentSignal.DomainConfidence, ctx.Domain, ctx.DomainConfidence)
+								ctx.Domain = intentSignal.Domain
+								ctx.DomainConfidence = intentSignal.DomainConfidence
 							}
 						}
 					}
@@ -188,21 +197,26 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 							hc.logInfo("User-Specific Intent: %s Action: %s Domain: %s (Confidence=%.2f, SidecarDecision: %s)",
 								userIntentSignal.Intent, userIntentSignal.Action, userIntentSignal.Domain,
 								userIntentSignal.Confidence, userIntentSignal.SidecarDecision)
-							// Check sidecar's own evaluation decision (user-specific takes precedence)
+
+							// AUDIT: Log sidecar decision
+							hc.logInfo("Intent decision received (user): %s", userIntentSignal.SidecarDecision)
+
+							// SIDECAR BLOCK IS TERMINAL — no Cedar, no LLM, no fallback
 							if userIntentSignal.SidecarDecision == "block" {
-								sidecarBlocked = true
-								sidecarBlockReason = userIntentSignal.SidecarReason
+								hc.logDecision("DENY", userIntentSignal.SidecarReason, "sidecar-evaluation")
+								w.Header().Set("X-Guardrail-Blocked", "true")
+								sendErrorResponse(w, http.StatusForbidden, "sidecar_blocked", userIntentSignal.SidecarReason, requestID)
+								return
+							}
+
+							// Domain drift protection: sidecar domain overrides heuristic when more confident
+							if userIntentSignal.Domain != "" && userIntentSignal.DomainConfidence > ctx.DomainConfidence {
+								hc.logInfo("Sidecar domain override (user): %s (Confidence=%.2f) over %s (Confidence=%.2f)",
+									userIntentSignal.Domain, userIntentSignal.DomainConfidence, ctx.Domain, ctx.DomainConfidence)
+								ctx.Domain = userIntentSignal.Domain
+								ctx.DomainConfidence = userIntentSignal.DomainConfidence
 							}
 						}
-					}
-
-					// ?????? SIDECAR DECISION ENFORCEMENT ??????
-					// If the sidecar's own evaluator blocked the request, enforce it
-					if sidecarBlocked {
-						hc.logDecision("DENY", sidecarBlockReason, "sidecar-evaluation")
-						w.Header().Set("X-Guardrail-Blocked", "true")
-						sendErrorResponse(w, http.StatusForbidden, "sidecar_blocked", sidecarBlockReason, requestID)
-						return
 					}
 
 					// FAIL-CLOSED: If intent analysis completely failed, mark context
@@ -222,6 +236,19 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 							ctx.Domain = detectedDomain
 							ctx.DomainConfidence = 0.90 // keyword match = high confidence
 							hc.logInfo("Heuristic domain detection: %s (Confidence=0.90)", detectedDomain)
+						}
+					}
+
+					// Fallback: If we have a confident domain match but NO confident action,
+					// default action to "other" to allow role-policy check to proceed.
+					// This prevents "Unknown action" blocks for valid domain-specific queries.
+					if ctx.Domain != "" && ctx.Action == "" {
+						// Only default if we are reasonably confident in the domain
+						if ctx.DomainConfidence >= 0.6 {
+							ctx.Action = "other"
+							ctx.ActionConfidence = 0.8 // High confidence for defaulted action within known domain
+							ctx.Intent = "conv.other"  // Default intent to avoid "Unknown intent" block
+							hc.logInfo("Action defaulted to 'other' and Intent to 'conv.other' based on confident domain match: %s", ctx.Domain)
 						}
 					}
 				}
@@ -287,7 +314,8 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 			}
 		}
 
-		// For now, we just pass through
+		// AUDIT: All guardrails passed — forwarding to LLM
+		hc.logInfo("Forwarding to LLM — all guardrails passed")
 		requestBody := body
 
 		// Build target URL

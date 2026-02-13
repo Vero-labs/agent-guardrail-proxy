@@ -40,8 +40,10 @@ type HeuristicAnalyzer struct {
 	greeterRegexp *regexp.Regexp
 	exploitRegexp *regexp.Regexp
 	sysCtrlRegexp *regexp.Regexp
-	// Configurable topics
-	topics map[string]*regexp.Regexp
+	// Configurable topics: name -> list of compiled keyword regexps
+	topics map[string][]*regexp.Regexp
+	// Keep the combined regex for backward compat with AnalyzeWithDomain fast-path match
+	topicFast map[string]*regexp.Regexp
 }
 
 // NewHeuristicAnalyzer initializes the fast-path detectors.
@@ -50,17 +52,26 @@ func NewHeuristicAnalyzer(topicConfigs map[string]policy.TopicConfig) *Heuristic
 		greeterRegexp: regexp.MustCompile(`(?i)^(hi|hello|hey|greetings|howdy|yo|morning|afternoon|evening|hola|bonjour)(\s+.*)?$`),
 		exploitRegexp: regexp.MustCompile(`(?i)(shellcode|nopsled|\\x90|0xdeadbeef|syscall|execve|/bin/sh|ptrace|buffer\s+overflow|stack\s+smashing)`),
 		sysCtrlRegexp: regexp.MustCompile(`(?i)^(restart|shutdown|reboot|halt|poweroff|stop\s+service|systemctl\s+stop)\b|(?i)(ignore\s+all\s+instructions|do\s+anything\s+now|DAN\s+mode|jailbreak|unfiltered\s+response)`),
-		topics:        make(map[string]*regexp.Regexp),
+		topics:        make(map[string][]*regexp.Regexp),
+		topicFast:     make(map[string]*regexp.Regexp),
 	}
 
 	// Compile user-defined topics from YAML
 	for name, config := range topicConfigs {
 		if len(config.Keywords) > 0 {
-			// Join keywords with word boundaries: \b(k1|k2|k3)\b
+			// Combined regex for fast-path match check
 			pattern := fmt.Sprintf(`(?i)\b(%s)\b`, strings.Join(config.Keywords, "|"))
 			re, err := regexp.Compile(pattern)
 			if err == nil {
-				h.topics[name] = re
+				h.topicFast[name] = re
+			}
+			// Individual keyword regexps for scoring
+			for _, kw := range config.Keywords {
+				kwPattern := fmt.Sprintf(`(?i)\b%s\b`, regexp.QuoteMeta(kw))
+				kwRe, err := regexp.Compile(kwPattern)
+				if err == nil {
+					h.topics[name] = append(h.topics[name], kwRe)
+				}
 			}
 		}
 	}
@@ -68,15 +79,28 @@ func NewHeuristicAnalyzer(topicConfigs map[string]policy.TopicConfig) *Heuristic
 	return h
 }
 
-// DetectTopic identifies the topic of the text based on configured keywords
+// DetectTopic identifies the topic of the text based on configured keywords.
+// When multiple topics match, returns the topic with the most distinct keyword hits
+// to prevent domain drift attacks (e.g., single "hiring" anchor overriding
+// actual political content with multiple political keyword matches).
 func (h *HeuristicAnalyzer) DetectTopic(text string) string {
 	trimmed := strings.TrimSpace(text)
-	for name, re := range h.topics {
-		if re.MatchString(trimmed) {
-			return name
+	bestTopic := ""
+	bestCount := 0
+
+	for name, kwRegexps := range h.topics {
+		matchCount := 0
+		for _, kwRe := range kwRegexps {
+			if kwRe.MatchString(trimmed) {
+				matchCount++
+			}
+		}
+		if matchCount > bestCount {
+			bestCount = matchCount
+			bestTopic = name
 		}
 	}
-	return ""
+	return bestTopic
 }
 
 // Analyze returns an IntentSignal if a high-confidence match is found.

@@ -72,6 +72,8 @@ type sidecarClassification struct {
 // sidecarResponse matches the top-level JSON response from the Python sidecar
 type sidecarResponse struct {
 	Classification sidecarClassification `json:"classification"`
+	Decision       string                `json:"decision"` // "allow" | "block"
+	Reason         string                `json:"reason"`   // Why the sidecar blocked/allowed
 }
 
 // Analyze extracts intent from text using BART-MNLI sidecar
@@ -129,6 +131,8 @@ func (a *IntentAnalyzer) callSidecar(req intentRequest) (*IntentSignal, error) {
 		ActionConfidence: c.ActionConfidence,
 		RiskScore:        c.RiskScore,
 		IsAmbiguous:      c.IsAmbiguous,
+		SidecarDecision:  rawResp.Decision,
+		SidecarReason:    rawResp.Reason,
 	}
 
 	// Derive Cedar-compatible intent from sidecar's action

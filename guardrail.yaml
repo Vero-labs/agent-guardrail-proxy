@@ -88,6 +88,18 @@ topics:
       - minister
       - politics
       - current affairs
+      - leadership structures
+      - executive branch
+      - legislature
+      - cabinet
+      - head of state
+      - federal government
+      - congress
+      - senate
+      - parliament
+      - national leadership
+      - political
+      - governor
 
 # ── Roles ────────────────────────────────────────────────────
 # Restrict agent behavior based on role (sent via X-Guardrail-Role header).
