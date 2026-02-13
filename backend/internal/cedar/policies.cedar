@@ -290,3 +290,33 @@ when {
     context.source_data.origin == "tool_output" &&
     context.intent == "sys.control"
 };
+
+// =============================================================================
+// SECTION 8: ROLE-BASED GUARDRAILS (Phase 4)
+// =============================================================================
+
+// 8.1 Recruiter Role - Block any dangerous intents or non-recruiting actions
+// Allowed intents for recruiter: info.query, info.summarize, conv.greeting, conv.other
+forbid(
+    principal,
+    action == Action::"chat",
+    resource
+)
+when {
+    context.role == "recruiter" &&
+    !(context.intent == "info.query" || 
+      context.intent == "info.summarize" || 
+      context.intent == "conv.greeting" || 
+      context.intent == "conv.other")
+};
+
+// 8.2 Recruiter Role - Specifically block sensitive data access even if intent is query
+forbid(
+    principal,
+    action == Action::"chat",
+    resource
+)
+when {
+    context.role == "recruiter" &&
+    (context.intent == "info.query.pii" || context.intent == "file.read")
+};

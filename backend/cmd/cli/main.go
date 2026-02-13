@@ -8,6 +8,7 @@ import (
 
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/analyzer"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/cedar"
+	"github.com/blackrose-blackhat/agent-guardrail/backend/internal/policy"
 	"github.com/blackrose-blackhat/agent-guardrail/backend/pkg/models"
 )
 
@@ -32,7 +33,7 @@ func main() {
 
 	// Initialize components
 	signalAggregator := analyzer.NewSignalAggregator()
-	heuristicAnalyzer := analyzer.NewHeuristicAnalyzer()
+	heuristicAnalyzer := analyzer.NewHeuristicAnalyzer(make(map[string]policy.TopicConfig))
 
 	// Initialize Intent Analyzer
 	intentAnalyzerURL := os.Getenv("INTENT_ANALYZER_URL")

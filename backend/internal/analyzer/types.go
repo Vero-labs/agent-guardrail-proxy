@@ -58,6 +58,9 @@ type Context struct {
 
 	// Provider info
 	Provider string `json:"provider"`
+
+	// Operational context (Phase 4 - role-based guardrails)
+	Role string `json:"role"`
 }
 
 // Facts represents the structured information extracted from a user prompt

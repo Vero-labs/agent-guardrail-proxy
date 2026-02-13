@@ -111,7 +111,7 @@ func Load() *Config {
 			Port:     getEnvInt("METRICS_PORT", 9090),
 			Endpoint: getEnv("METRICS_ENDPOINT", "/metrics"),
 		},
-		IntentAnalyzerURL: getEnv("INTENT_ANALYZER_URL", "http://localhost:8001"),
+		IntentAnalyzerURL: getEnv("INTENT_ANALYZER_URL", "https://huggingface.co/spaces/Blackrose-Blackhat/intent_analyzer"),
 		SemanticCacheURL:  getEnv("SEMANTIC_CACHE_URL", ""),
 	}
 

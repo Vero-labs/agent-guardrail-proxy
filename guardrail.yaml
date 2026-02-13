@@ -1,0 +1,140 @@
+# guardrail.yaml — Unified Guardrail Policy Configuration
+# All security rules in one place. Edit this file to change guardrail behavior.
+# Changes are picked up on restart (hot-reload coming soon).
+
+version: "1.0"
+
+# ── Global Safety ────────────────────────────────────────────
+# These are absolute rules that cannot be overridden by roles.
+safety:
+  prompt_injection: block # block | log | off
+  toxicity_threshold: 0.50 # 0.0–1.0, block above this
+  max_risk_score: 0.85 # fail-safe catch-all
+
+# ── PII Controls ─────────────────────────────────────────────
+pii:
+  block: [ssn, credit_card] # always block requests containing these
+  redact: [email, phone] # redact before forwarding to LLM
+
+# ── Dangerous Capabilities ───────────────────────────────────
+# Keywords/patterns that indicate dangerous operations.
+capabilities:
+  block:
+    - file_delete
+    - privileged_read
+    - process_control
+    - privilege_escalation
+
+# ── Intent Thresholds ────────────────────────────────────────
+# Define what happens per intent class. Confidence is 0–100.
+# action: block | log | allow
+intents:
+  code.exploit:
+    action: block
+    threshold: 20
+
+  sys.control:
+    action: block
+    threshold: 45
+
+  tool.dangerous:
+    action: block
+    threshold: 45
+
+  file.write:
+    action: block
+    threshold: 50
+
+  file.read:
+    action: block
+    threshold: 40
+    when:
+      sensitivity: sensitive
+
+  info.query.pii:
+    action: block
+    threshold: 30
+
+# ── User-Intent Overrides ────────────────────────────────────
+# User messages get stricter thresholds than system messages.
+user_intent_overrides:
+  code.exploit:
+    threshold: 30
+  sys.control:
+    threshold: 40
+
+# ── Topics ───────────────────────────────────────────────────
+# Domain-specific topic definitions (Keywords/Regex)
+topics:
+  recruitment:
+    keywords:
+      - job
+      - career
+      - application
+      - candidate
+      - hiring
+      - recruitment
+      - interview
+      - salary
+      - cv
+      - resume
+      - status of my application
+  politics:
+    keywords:
+      - president
+      - government
+      - election
+      - voting
+      - minister
+      - politics
+      - current affairs
+
+# ── Roles ────────────────────────────────────────────────────
+# Restrict agent behavior based on role (sent via X-Guardrail-Role header).
+roles:
+  recruiter:
+    description: "HR recruitment assistant – can only query and summarize"
+    allow_intents:
+      - info.query
+      - info.summarize
+      - conv.greeting
+      - conv.other
+    allowed_topics:
+      - recruitment
+      - candidates
+      - jobs
+      - hr
+    block_intents:
+      - info.query.pii
+      - file.read
+      - code.generate
+      - code.exploit
+      - sys.control
+
+  customer_support:
+    description: "Customer support agent – can query, summarize, use safe tools"
+    allow_intents:
+      - info.query
+      - info.summarize
+      - conv.greeting
+      - conv.other
+      - tool.safe
+    block_intents:
+      - code.exploit
+      - sys.control
+      - file.write
+
+# ── Agentic Workflow Limits ──────────────────────────────────
+agent_limits:
+  max_steps: 0 # 0 = unlimited
+  token_budget: 0 # 0 = unlimited
+  tighten_after_step: 5 # lower confidence thresholds after this step
+  tightened_threshold: 30 # threshold for risky intents after step limit
+
+# ── Source Trust ─────────────────────────────────────────────
+# Control what intents are permitted based on where content came from.
+source_trust:
+  untrusted_web:
+    block_intents: [code.generate, file.write]
+  tool_output:
+    block_intents: [sys.control]

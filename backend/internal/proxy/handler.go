@@ -80,6 +80,12 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 				ctx.ResourceSensitivity = s
 			}
 
+			// Operational context: Extract Role from header (Phase 4)
+			if role := r.Header.Get("X-Guardrail-Role"); role != "" {
+				ctx.Role = role
+				hc.logInfo("Request Role detected: %s", role)
+			}
+
 			// 1. Deterministic Signal Generation (always runs first)
 			if hc.SignalAggregator != nil {
 				signals := hc.SignalAggregator.Aggregate(parsedReq)
@@ -91,6 +97,15 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 				if len(signals.PII) > 0 {
 					metrics.RecordSignalDetected("pii")
 				}
+				// 1.5 Topic Detection (Fast-Path)
+				if hc.HeuristicAnalyzer != nil && ctx.Signals.UserText != "" {
+					topic := hc.HeuristicAnalyzer.DetectTopic(ctx.Signals.UserText)
+					if topic != "" {
+						ctx.Signals.Topic = topic
+						hc.logInfo("Heuristic Topic detected: %s", topic)
+					}
+				}
+
 				if signals.Toxicity > 0.5 {
 					metrics.RecordSignalDetected("toxicity")
 				} // Threshold example
@@ -116,11 +131,14 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 
 				// B. Deep-Path: BART sidecar (only if heuristic didn't confidently hit)
 				if heuristicSignal == nil {
+					intentFailed := false
+
 					// Contextual Window Analysis
 					if len(parsedReq.Messages) > 0 {
 						intentSignal, err := hc.IntentAnalyzer.AnalyzeMessages(parsedReq.Messages)
 						if err != nil {
 							hc.logError("[WARN] Contextual intent analysis failed: %v", err)
+							intentFailed = true
 						} else {
 							ctx.AttachIntent(intentSignal, "aggregate")
 							hc.logInfo("Contextual Intent: %s (Confidence=%.2f, DerivedRisk=%.2f)",
@@ -135,11 +153,22 @@ func Handler(hc *HandlerConfig) http.HandlerFunc {
 						userIntentSignal, err := hc.IntentAnalyzer.Analyze(ctx.Signals.UserText)
 						if err != nil {
 							hc.logError("[WARN] User content intent analysis failed: %v", err)
+							intentFailed = true
 						} else {
 							ctx.AttachIntent(userIntentSignal, "user")
 							hc.logInfo("User-Specific Intent: %s (Confidence=%.2f)",
 								userIntentSignal.Intent, userIntentSignal.Confidence)
 						}
+					}
+
+					// FAIL-CLOSED: If intent analysis completely failed, mark as unknown
+					// so Cedar can evaluate it rather than silently allowing
+					if intentFailed && ctx.Intent == "" {
+						ctx.Intent = "unknown"
+						ctx.UserIntent = "unknown"
+						ctx.Confidence = 0.5
+						ctx.RiskScore = 0.5
+						hc.logInfo("Intent analysis unavailable — defaulting to unknown (fail-closed)")
 					}
 				}
 			}

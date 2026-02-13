@@ -276,6 +276,8 @@ func (e *Engine) EvaluateContextWithResult(ctx *analyzer.Context) EvaluationResu
 			"tokens":    cedar.Long(int64(ctx.Request.Tokens)),
 			// Provider
 			"provider": cedar.String(ctx.Provider),
+			// Role (Phase 4)
+			"role": cedar.String(ctx.Role),
 			// Agentic state (Phase 2)
 			"agent_state": cedar.NewRecord(agentStateMap),
 			// Source data (Phase 3)
