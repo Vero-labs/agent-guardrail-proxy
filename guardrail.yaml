@@ -8,7 +8,7 @@ version: "1.0"
 # These are absolute rules that cannot be overridden by roles.
 safety:
   prompt_injection: block # block | log | off
-  toxicity_threshold: 0.50 # 0.0–1.0, block above this
+  toxicity_threshold: 0.40 # 0.0–1.0, block above this
   max_risk_score: 0.85 # fail-safe catch-all
 
 # ── PII Controls ─────────────────────────────────────────────
@@ -53,7 +53,7 @@ intents:
 
   info.query.pii:
     action: block
-    threshold: 30
+    threshold: 20 # Lowered from 30 to catch more PII queries
 
 # ── User-Intent Overrides ────────────────────────────────────
 # User messages get stricter thresholds than system messages.
@@ -66,6 +66,14 @@ user_intent_overrides:
 # ── Topics ───────────────────────────────────────────────────
 # Domain-specific topic definitions (Keywords/Regex)
 topics:
+  creative_writing:
+    keywords:
+      - poem
+      - story
+      - novel
+      - haiku
+      - lyrics
+      - write a
   recruitment:
     keywords:
       - job

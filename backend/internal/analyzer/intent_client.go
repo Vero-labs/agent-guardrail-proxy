@@ -71,9 +71,12 @@ type sidecarClassification struct {
 
 // sidecarResponse matches the top-level JSON response from the Python sidecar
 type sidecarResponse struct {
-	Classification sidecarClassification `json:"classification"`
-	Decision       string                `json:"decision"` // "allow" | "block"
-	Reason         string                `json:"reason"`   // Why the sidecar blocked/allowed
+	Intent     string  `json:"intent"`
+	Confidence float64 `json:"confidence"`
+	RiskScore  float64 `json:"risk_score"`
+	Tier       string  `json:"tier"`
+	Decision   string  `json:"decision"` // "allow" | "block"
+	Reason     string  `json:"reason"`   // Why the sidecar blocked/allowed
 }
 
 // Analyze extracts intent from text using BART-MNLI sidecar
@@ -115,28 +118,21 @@ func (a *IntentAnalyzer) callSidecar(req intentRequest) (*IntentSignal, error) {
 		return nil, fmt.Errorf("intent sidecar returned status %d", resp.StatusCode)
 	}
 
-	// Sidecar response is nested: {"classification": {...}, "trace": {...}}
+	// Sidecar response is flat: {"intent": "...", "decision": "...", ...}
 	var rawResp sidecarResponse
 	if err := json.NewDecoder(resp.Body).Decode(&rawResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	// Map sidecar classification to IntentSignal
-	c := rawResp.Classification
 	signal := IntentSignal{
-		Action:           c.Action,
-		Domain:           c.Domain,
-		Confidence:       c.ActionConfidence, // best proxy for overall confidence
-		DomainConfidence: c.DomainConfidence,
-		ActionConfidence: c.ActionConfidence,
-		RiskScore:        c.RiskScore,
-		IsAmbiguous:      c.IsAmbiguous,
-		SidecarDecision:  rawResp.Decision,
-		SidecarReason:    rawResp.Reason,
+		Intent:          rawResp.Intent,
+		Action:          rawResp.Intent, // Map intent to action for internal logic
+		Confidence:      rawResp.Confidence,
+		RiskScore:       rawResp.RiskScore,
+		SidecarDecision: rawResp.Decision,
+		SidecarReason:   rawResp.Reason,
 	}
-
-	// Derive Cedar-compatible intent from sidecar's action
-	signal.Intent = intentForAction(c.Action)
 
 	// Validate intent is in taxonomy
 	if !isValidIntent(signal.Intent) {
